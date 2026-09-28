@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.3] — 2026-09-28
+
+### Changed
+
+- The public repository now ships the daemon source (`cmd/`, `internal/`,
+  `go.mod`, `go.sum`) and builds releases from it there, so the shipped binary is
+  reviewable against its exact source.
+- `install.sh` now requires a valid sigstore build attestation (fail-closed): a
+  missing `gh` or an unverifiable release aborts the install. Set
+  `GATEWAY_ALLOW_UNVERIFIED=1` to install sha256-only (offline/dev, not
+  recommended).
+
 ## [0.1.2] — 2026-09-28
 
 ### Changed

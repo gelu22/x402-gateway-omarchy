@@ -1,22 +1,18 @@
 name: Release
 
-# This file is the release workflow for the PUBLIC plugin repo. It lives in the
-# private monorepo as deploy/release-public.yml (NOT under .github/workflows/,
-# so a monorepo tag never triggers it). scripts/publish-public.sh copies it into
-# the public snapshot as .github/workflows/release.yml.
+# Release workflow for the PUBLIC plugin repo. It lives in the private monorepo
+# as deploy/release-public.yml (NOT under .github/workflows/, so a monorepo tag
+# never triggers it) and scripts/publish-public.sh copies it into the public
+# snapshot as .github/workflows/release.yml.
 #
-# It clones the private monorepo with a read-only deploy key, builds the daemon
-# and the plugin bundle, attests every artifact, and publishes the release.
-# Because the workflow runs HERE, the sigstore attestation is stored in THIS
-# public repo, so end users can verify it with:
+# The daemon source ships in this repository, so the build and the sigstore
+# attestation both happen here: a reviewer can read the exact code that produced
+# the shipped binary, and end users can verify it with:
 #   gh attestation verify <file> --repo <this-repo>
 #
 # Actions are pinned by commit SHA (a moved tag here would let a compromised
-# action mint attestations and publish assets in the trusted repo).
-#
-# Required settings on the public repo:
-#   variable MONOREPO_REPO        "owner/name" of the private monorepo
-#   secret   MONOREPO_DEPLOY_KEY  read-only deploy key for the private monorepo
+# action mint attestations and publish assets in the trusted repo). No secrets
+# are required — the default GITHUB_TOKEN is enough.
 on:
   push:
     tags: ["v*"]
@@ -30,50 +26,34 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Add the read-only deploy key (GitHub host key pinned)
-        env:
-          DEPLOY_KEY: ${{ secrets.MONOREPO_DEPLOY_KEY }}
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n' \
-            > ~/.ssh/known_hosts
-
-      - name: Checkout the private monorepo at the release tag
-        env:
-          MONOREPO_REPO: ${{ vars.MONOREPO_REPO }}
-        run: |
-          [ -n "$MONOREPO_REPO" ] || { echo "MONOREPO_REPO repo variable is not set"; exit 1; }
-          mkdir -p src
-          git clone --depth 1 --branch "$GITHUB_REF_NAME" \
-            "git@github.com:${MONOREPO_REPO}.git" src
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.13"
 
       - name: Build daemon + bundle + version stamp
-        working-directory: src
         run: |
-          mkdir -p dist
           # Stamp the release tag into the binary (strip leading "v"; a bare
           # "v" tag falls back to dev rather than an empty version).
           VERSION="${GITHUB_REF_NAME#v}"
           VERSION="${VERSION:-dev}"
+          mkdir -p dist
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
               go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
               -o "dist/gateway-linux-$arch" ./cmd/gateway
           done
-          # Version stamp shipped inside the bundle (read back by the panel).
+          # The public repo flattens the plugin to the root (marketplace layout);
+          # the release bundle uses the layout install.sh expects: plugin/omarchy/…
+          rm -rf bundle
+          mkdir -p bundle/plugin/omarchy bundle/scripts bundle/config
+          cp ./*.qml ./*.js manifest.json bundle/plugin/omarchy/
           printf '{\n  "version": "%s",\n  "git_sha": "%s"\n}\n' \
-            "$VERSION" "$(git rev-parse HEAD)" > plugin/omarchy/build-info.json
-          # Plugin bundle: QML plugin + agent setup script + config template,
-          # repo-relative paths (installer expects ./plugin/omarchy/,
-          # ./scripts/setup-agents.sh and ./config/gateway-config.json inside).
-          tar -czf dist/plugin-bundle.tar.gz \
-            plugin/omarchy scripts/setup-agents.sh config/gateway-config.json
+            "$VERSION" "$GITHUB_SHA" > bundle/plugin/omarchy/build-info.json
+          cp scripts/setup-agents.sh bundle/scripts/
+          cp config/gateway-config.json bundle/config/
+          tar -czf dist/plugin-bundle.tar.gz -C bundle .
           tar -tzf dist/plugin-bundle.tar.gz
           (cd dist && sha256sum gateway-linux-* plugin-bundle.tar.gz > sha256sums.txt)
 
@@ -81,17 +61,17 @@ jobs:
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
-            src/dist/gateway-linux-amd64
-            src/dist/gateway-linux-arm64
-            src/dist/plugin-bundle.tar.gz
-            src/dist/sha256sums.txt
+            dist/gateway-linux-amd64
+            dist/gateway-linux-arm64
+            dist/plugin-bundle.tar.gz
+            dist/sha256sums.txt
 
       - name: Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            src/dist/gateway-linux-amd64
-            src/dist/gateway-linux-arm64
-            src/dist/plugin-bundle.tar.gz
-            src/dist/sha256sums.txt
+            dist/gateway-linux-amd64
+            dist/gateway-linux-arm64
+            dist/plugin-bundle.tar.gz
+            dist/sha256sums.txt
           generate_release_notes: true

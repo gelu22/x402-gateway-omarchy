@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gateway installer: downloads the latest (or given) release (binary +
-# plugin bundle), verifies sha256 + sigstore provenance (when `gh` is
-# available), installs binary to ~/.local/bin, QML
+# plugin bundle), verifies sha256 AND requires a valid sigstore provenance
+# attestation (fail-closed), installs binary to ~/.local/bin, QML
 # plugin to ~/.config/omarchy/plugins/gelu22.gateway (Omarchy only),
 # helper script to ~/.local/share/x402-gateway, seeds the plugin config at
 # ~/.config/omarchy/x402-gateway/config.json (only when absent), state dir 0700.
@@ -12,10 +12,12 @@
 #   install.sh remove       # uninstall (keeps state dir AND user config)
 #   install.sh purge [--yes] # full uninstall via scripts/uninstall.sh
 #                            # (interactive without --yes; wipes state+config)
-# Env (mirrors / dev-test hooks):
-#   GATEWAY_RELEASE_BASE  override release download base URL
-#                         (default: https://github.com/$REPO/releases/download/$VERSION;
-#                          e.g. file:///tmp/fakerelease for offline tests)
+# Env:
+#   GATEWAY_RELEASE_BASE        override release download base URL
+#                               (default: https://github.com/$REPO/releases/download/$VERSION;
+#                                e.g. file:///tmp/fakerelease for offline tests)
+#   GATEWAY_ALLOW_UNVERIFIED=1  deliberately skip the signature check (sha256
+#                               only; for offline/dev — not recommended)
 set -euo pipefail
 
 REPO="gelu22/x402-gateway-omarchy"
@@ -50,32 +52,35 @@ download_release() {  # $1=version $2=tmpdir; sets BUNDLE + SHA files
   verify_provenance "$tmp/plugin-bundle.tar.gz"
 }
 
-# Sigstore/GitHub-OIDC provenance (012.1): hard-fail on a BAD attestation;
-# loud warning + sha256-only when verification is impossible (no `gh`,
-# test-override base) or inconclusive (legacy release predating signing,
-# unreachable/rate-limited API). sha256 stays the fast integrity layer.
+# Sigstore/GitHub-OIDC provenance: FAIL-CLOSED. A checksum downloaded from the
+# same release as the binary is not an independent binding; the sigstore
+# attestation (signed by the build workflow identity) is. Verification is
+# therefore REQUIRED — a missing `gh` or an inconclusive result aborts the
+# install. Two explicit escapes: GATEWAY_RELEASE_BASE (file:// test/dev source)
+# and GATEWAY_ALLOW_UNVERIFIED=1 (deliberate, loud opt-out). sha256 stays as the
+# fast integrity layer.
 verify_provenance() {  # $1=file
   local file="$1" out
   if [ -n "${GATEWAY_RELEASE_BASE:-}" ]; then
     echo "  ⚠ attestation skipped (GATEWAY_RELEASE_BASE=$GATEWAY_RELEASE_BASE test-override; files not from GitHub)"
     return 0
   fi
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "  ⚠ WARNING: 'gh' not found — skipping sigstore attestation verify for $(basename "$file"); sha256 only. Install gh for full chain-of-trust."
+  if [ "${GATEWAY_ALLOW_UNVERIFIED:-}" = "1" ]; then
+    echo "  ⚠ WARNING: attestation DISABLED (GATEWAY_ALLOW_UNVERIFIED=1) — sha256 only, no signature check"
     return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "  ✗ 'gh' is required to verify the release signature." >&2
+    echo "    Install GitHub CLI (https://cli.github.com), or re-run with" >&2
+    echo "    GATEWAY_ALLOW_UNVERIFIED=1 to install sha256-only (not recommended)." >&2
+    exit 1
   fi
   if out=$(gh attestation verify "$file" --repo "$REPO" 2>&1); then
     echo "  ✓ attestation OK: $(basename "$file")"
     return 0
   fi
-  case "$out" in
-    *[Nn]"o attestation"*|*[Rr]"ate limit"*|*401*|*403*|*[Aa]"uthenticat"*|*[Nn]"etwork"*|*[Tt]"imeout"*|*"ould not resolve"*|*[Cc]"onnection"*|*TLS*|*"ertificate"*)
-      printf '  ⚠ WARNING: attestation check inconclusive for %s; sha256 only (%s).\n' "$(basename "$file")" "$(printf '%s' "$out" | head -c 160)"
-      return 0
-      ;;
-  esac
-  echo "ATTESTATION FAILED for $file — possible tampering"
-  printf '%s\n' "$out" | head -5
+  echo "  ✗ ATTESTATION FAILED for $(basename "$file") — refusing to install." >&2
+  printf '%s\n' "$out" | head -5 >&2
   exit 1
 }
 

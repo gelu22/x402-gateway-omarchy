@@ -35,10 +35,11 @@ curl -fsSL -o /tmp/x402-install.sh https://raw.githubusercontent.com/gelu22/x402
 bash /tmp/x402-install.sh
 ```
 
-The installer verifies sha256 checksums plus sigstore build attestations
-(skipped with a loud warning when `gh` is unavailable; legacy releases without
-attestations install sha256-only). Attestation covers release files only, not
-`install.sh` itself. Then it installs:
+The installer checks sha256 **and** requires a valid sigstore build attestation
+(the GitHub CLI `gh` must be installed; without a valid signature it refuses to
+install). To install without the signature check — offline, or at your own risk —
+prefix the command with `GATEWAY_ALLOW_UNVERIFIED=1`. The attestation covers the
+release files, not `install.sh` itself. Then it installs:
 - binary → `~/.local/bin/gateway`
 - QML plugin → `~/.config/omarchy/plugins/gelu22.gateway` (Omarchy only;
   skipped with instructions elsewhere)
