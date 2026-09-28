@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.9] — 2026-09-28
+
+### Security
+
+- **Fixed a critical pipefail bug in the bundle safety check**: under
+  `set -euo pipefail`, `tar | grep -q` would SIGPIPE tar when grep exited early,
+  and the unsafe-path/symlink rejection would silently pass. The check now
+  captures the listing first (no pipe), so a malicious bundle is always rejected.
+- The installer now fails loudly when `omarchy plugin validate` rejects the
+  plugin (instead of silently continuing).
+- The deinstaller's no-terminal hint points at a pinned release with an
+  attestation check (no more `releases/latest`).
+- Interactive deinstaller prompts use standard English `[Y/n]`/`[y/N]` defaults;
+  removing data (including the audit log) now defaults to **no**.
+- README install/update/uninstall are single `&&` chains: download, verify, run.
+
 ## [0.1.8] — 2026-09-28
 
 ### Security

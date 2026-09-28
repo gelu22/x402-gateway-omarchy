@@ -177,16 +177,16 @@ interactive() {
   fi
   say ""
   local agents=0 program=0 data=0
-  if ask "Remove MCP entries in agent configs? [T/n]" T; then agents=1; fi
-  if ask "Remove the program (processes, binary, plugin, helper)? [T/n]" T; then program=1; fi
-  if ask "Remove data (state + config, including audit.log)? [T/n]" T; then data=1; fi
+  if ask "Remove MCP entries in agent configs? [Y/n]" Y; then agents=1; fi
+  if ask "Remove the program (processes, binary, plugin, helper)? [Y/n]" Y; then program=1; fi
+  if ask "Remove data (state + config, including audit.log)? [y/N]" N; then data=1; fi
   if [ $((agents + program + data)) -eq 0 ]; then
     say "Nothing selected — no changes."
     return 0
   fi
   say ""
   say "Summary: agents=${agents} program=${program} data=${data}"
-  if ! ask "Proceed? [T/n]" T; then
+  if ! ask "Proceed? [Y/n]" Y; then
     say "Cancelled — no changes."
     return 0
   fi
@@ -207,9 +207,10 @@ case "${1:-}" in
       interactive
     else
       say "No terminal (stdin is not a TTY) — interactive mode unavailable."
-      say "To remove everything without questions, run:"
-      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/${REPO}/releases/latest/download/uninstall.sh"
-      say "  bash /tmp/x402-uninstall.sh --yes"
+      say "To remove everything without questions, download the deinstaller from a"
+      say "pinned release, verify it, then run it:"
+      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/${REPO}/releases/download/<tag>/uninstall.sh"
+      say "  gh attestation verify /tmp/x402-uninstall.sh --repo ${REPO} && bash /tmp/x402-uninstall.sh --yes"
       exit 1
     fi
     ;;

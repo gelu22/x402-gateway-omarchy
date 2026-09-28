@@ -25,14 +25,14 @@ script straight into a shell:
 ```bash
 VERSION=v0.1.8   # any released tag (see the Releases page)
 curl -fsSL -o /tmp/x402-install.sh \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh"
-gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
+&& gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION"
-bash /tmp/x402-install.sh "$VERSION"
+  --source-ref "refs/tags/$VERSION" \
+&& bash /tmp/x402-install.sh "$VERSION"
 ```
 
-Or run it from a pinned checkout:
+Or read the code first and run it from a pinned checkout:
 
 ```bash
 git clone --branch v0.1.8 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
@@ -65,11 +65,11 @@ once. To update, run the same pinned, verified download for the new tag:
 ```bash
 VERSION=v0.1.8
 curl -fsSL -o /tmp/x402-install.sh \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh"
-gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
+&& gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION"
-bash /tmp/x402-install.sh "$VERSION"
+  --source-ref "refs/tags/$VERSION" \
+&& bash /tmp/x402-install.sh "$VERSION"
 ```
 
 Check what changed in [CHANGELOG.md](CHANGELOG.md).
@@ -81,11 +81,11 @@ Interactive deinstaller — download from a pinned release, verify it, then run 
 ```bash
 VERSION=v0.1.8
 curl -fsSL -o /tmp/x402-uninstall.sh \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh"
-gh attestation verify /tmp/x402-uninstall.sh --repo gelu22/x402-gateway-omarchy \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
+&& gh attestation verify /tmp/x402-uninstall.sh --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION"
-bash /tmp/x402-uninstall.sh
+  --source-ref "refs/tags/$VERSION" \
+&& bash /tmp/x402-uninstall.sh
 ```
 
 Everything at once, no questions (stops the daemon, removes the binary, the

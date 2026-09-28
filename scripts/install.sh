@@ -52,7 +52,9 @@ registry_set() {  # $1=path: record/refresh its sha
   local dir tmp
   dir="$(dirname "$REGISTRY")"; mkdir -p "$dir"
   tmp="$(mktemp "$dir/.reg.XXXXXX")"
-  [ -f "$REGISTRY" ] && awk -v p="$1" 'substr($0,67)!=p' "$REGISTRY" > "$tmp"
+  if [ -f "$REGISTRY" ]; then
+    awk -v p="$1" 'substr($0,67)!=p' "$REGISTRY" > "$tmp"
+  fi
   sha256sum "$1" >> "$tmp"
   mv "$tmp" "$REGISTRY"
 }
@@ -219,7 +221,12 @@ install_plugin() {  # $1=extracted bundle dir
     cp "$1/plugin/omarchy/build-info.json" "$PLUGIN_DIR/"
   fi
   if command -v omarchy >/dev/null 2>&1; then
-    omarchy plugin validate "$PLUGIN_DIR" && echo "✓ plugin validated"
+    if omarchy plugin validate "$PLUGIN_DIR"; then
+      echo "✓ plugin validated"
+    else
+      echo "  ✗ plugin validation failed — refusing to install a broken plugin." >&2
+      exit 1
+    fi
   else
     echo "  ⚠ omarchy CLI not found — skipping plugin validation"
   fi
@@ -251,11 +258,22 @@ do_install() {  # $1=version tag (TMP intentionally global: EXIT trap)
   install_binary "$TMP"
   mkdir -p "$TMP/bundle"
   # Reject absolute / traversal / symlink members before extracting.
-  if tar -tzf "$TMP/plugin-bundle.tar.gz" | grep -qE '(^/|(^|/)\.\.(/|$))'; then
-    echo "  ✗ plugin bundle contains an unsafe path" >&2; exit 1
+  # No pipes: under `set -euo pipefail` a `tar | grep -q` would SIGPIPE tar when
+  # grep exits early, and pipefail would turn the rejection into a silent pass.
+  local tar_names unsafe_paths tar_verbose symlink_members
+  tar_names="$(tar -tzf "$TMP/plugin-bundle.tar.gz")"
+  unsafe_paths="$(printf '%s\n' "$tar_names" | grep -E '(^/|(^|/)\.\.(/|$))' || true)"
+  if [ -n "$unsafe_paths" ]; then
+    echo "  ✗ plugin bundle contains an unsafe path:" >&2
+    printf '%s\n' "$unsafe_paths" | head -5 >&2
+    exit 1
   fi
-  if tar -tvzf "$TMP/plugin-bundle.tar.gz" | grep -q ' -> '; then
-    echo "  ✗ plugin bundle contains a symlink member" >&2; exit 1
+  tar_verbose="$(tar -tvzf "$TMP/plugin-bundle.tar.gz")"
+  symlink_members="$(printf '%s\n' "$tar_verbose" | grep -E '(^l| -> )' || true)"
+  if [ -n "$symlink_members" ]; then
+    echo "  ✗ plugin bundle contains a symlink member:" >&2
+    printf '%s\n' "$symlink_members" | head -5 >&2
+    exit 1
   fi
   tar --no-same-owner --no-same-permissions -xzf "$TMP/plugin-bundle.tar.gz" -C "$TMP/bundle"
   install_scripts "$TMP/bundle"
