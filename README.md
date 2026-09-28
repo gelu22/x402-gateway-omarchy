@@ -31,15 +31,16 @@ bash scripts/install.sh
 Prefer a single file? Download it, then run it:
 
 ```bash
-curl -fsSL -o /tmp/x402-install.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh
+curl -fsSL -o /tmp/x402-install.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/install.sh
 bash /tmp/x402-install.sh
 ```
 
 The installer checks sha256 **and** requires a valid sigstore build attestation
 (the GitHub CLI `gh` must be installed; without a valid signature it refuses to
 install). To install without the signature check — offline, or at your own risk —
-prefix the command with `GATEWAY_ALLOW_UNVERIFIED=1`. The attestation covers the
-release files, not `install.sh` itself. Then it installs:
+prefix the command with `GATEWAY_ALLOW_UNVERIFIED=1`. `install.sh` and
+`uninstall.sh` are shipped as signed release assets, so prefer the release URLs
+above over any branch URL. Then it installs:
 - binary → `~/.local/bin/gateway`
 - QML plugin → `~/.config/omarchy/plugins/gelu22.gateway` (Omarchy only;
   skipped with instructions elsewhere)
@@ -59,7 +60,7 @@ once. To update, re-run the installer — it replaces the binary and the plugin
 and keeps your state (budgets, spend, remembered URLs, session):
 
 ```bash
-curl -fsSL -o /tmp/x402-install.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh
+curl -fsSL -o /tmp/x402-install.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/install.sh
 bash /tmp/x402-install.sh
 ```
 
@@ -71,7 +72,7 @@ Interactive deinstaller — asks whether to remove everything or to pick groups
 (agent MCP entries / program / data):
 
 ```bash
-curl -fsSL -o /tmp/x402-uninstall.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/uninstall.sh
+curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/uninstall.sh
 bash /tmp/x402-uninstall.sh
 ```
 

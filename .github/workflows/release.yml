@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -55,7 +57,10 @@ jobs:
           cp config/gateway-config.json bundle/config/
           tar -czf dist/plugin-bundle.tar.gz -C bundle .
           tar -tzf dist/plugin-bundle.tar.gz
-          (cd dist && sha256sum gateway-linux-* plugin-bundle.tar.gz > sha256sums.txt)
+          # Ship the installer/deinstaller as attested release assets too, so
+          # users fetch a pinned, signed artifact instead of a mutable branch.
+          cp scripts/install.sh scripts/uninstall.sh dist/
+          (cd dist && sha256sum gateway-linux-* plugin-bundle.tar.gz install.sh uninstall.sh > sha256sums.txt)
 
       - name: Attest build provenance (sigstore keyless, GitHub OIDC)
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -64,6 +69,8 @@ jobs:
             dist/gateway-linux-amd64
             dist/gateway-linux-arm64
             dist/plugin-bundle.tar.gz
+            dist/install.sh
+            dist/uninstall.sh
             dist/sha256sums.txt
 
       - name: Release
@@ -73,5 +80,7 @@ jobs:
             dist/gateway-linux-amd64
             dist/gateway-linux-arm64
             dist/plugin-bundle.tar.gz
+            dist/install.sh
+            dist/uninstall.sh
             dist/sha256sums.txt
           generate_release_notes: true

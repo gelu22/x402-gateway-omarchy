@@ -27,10 +27,10 @@ REGISTRY="$STATE_DIR/installed.sha256"
 
 say() { printf '%s\n' "$*"; }
 
-is_ours() {  # $1=path: true iff it exists and its sha matches the recording
+is_ours() {  # $1=path: true iff it is a regular file whose sha matches the recording
   local want
-  [ -f "$1" ] && [ -f "$REGISTRY" ] || return 1
-  want="$(awk -v p="$1" '$2 == p {print $1}' "$REGISTRY" | tail -1)"
+  [ -f "$1" ] && [ ! -L "$1" ] && [ -f "$REGISTRY" ] || return 1
+  want="$(awk -v p="$1" 'substr($0,67)==p {print $1}' "$REGISTRY" | tail -1)"
   [ -n "$want" ] || return 1
   [ "$(sha256sum "$1" | awk '{print $1}')" = "$want" ]
 }
@@ -147,7 +147,7 @@ interactive() {
   say "  • processes (daemon + MCP bridge), binary, QML plugin, helper, shell restart"
   say "  • data: ${STATE_DIR} (session, spend, policy, sellers, audit.log) and ${CONFIG_DIR}"
   say ""
-  if ask "Remove EVERYTHING without further questions? [T/n]" T; then
+  if ask "Remove EVERYTHING without further questions? [y/N]" N; then
     do_all
     return 0
   fi
@@ -184,7 +184,7 @@ case "${1:-}" in
     else
       say "No terminal (stdin is not a TTY) — interactive mode unavailable."
       say "To remove everything without questions, run:"
-      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://raw.githubusercontent.com/${REPO}/master/scripts/uninstall.sh"
+      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/${REPO}/releases/latest/download/uninstall.sh"
       say "  bash /tmp/x402-uninstall.sh --yes"
       exit 1
     fi

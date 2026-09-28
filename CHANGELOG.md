@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.7] — 2026-09-28
+
+### Security
+
+- No downloaded or sibling script is executed any more: `install.sh purge` wipes
+  inline instead of fetching `uninstall.sh` from a mutable branch (or running a
+  foreign `/tmp/uninstall.sh`). `install.sh`/`uninstall.sh` now ship as signed
+  release assets, and the README uses those release URLs instead of `master`.
+- The installer pins the signer workflow and the tag when verifying the sigstore
+  attestation, and `GATEWAY_RELEASE_BASE` is accepted only as a `file://` offline
+  source (a remote override needs the explicit `GATEWAY_ALLOW_UNVERIFIED=1`).
+- Target directories are refused when they are symlinks; ownership checks run
+  before any side effect; the ownership registry handles a `$HOME` with spaces;
+  the deinstaller’s destructive default is now “no”.
+- Release workflow uses `persist-credentials: false`; the publish script takes the
+  public workflows from HEAD and runs a fail-closed secret scan before pushing.
+- Agent setup rolls back and removes its backup when a write fails validation.
+
 ## [0.1.6] — 2026-09-28
 
 ### Security

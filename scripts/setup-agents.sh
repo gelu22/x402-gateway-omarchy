@@ -181,15 +181,23 @@ integrate_one() {
     toml) inject_toml "$file" ;;
   esac
 
-  if [ "$fmt" = "json" ]; then validate_json "$file" || validate_json "$file.bak" 2>/dev/null || true
-  else validate_toml "$file" || true; fi
+  # A write that does not validate is rolled back, never reported OK. (The old
+  # `|| true` swallowed this: a corrupt file with an unrelated valid backup
+  # passed, and no restore happened.)
+  if [ "$fmt" = "json" ]; then
+    validate_json "$file" || { echo "FAIL $name invalid-after-write"; [ -f "$bak" ] && restore "$bak" "$file"; return 1; }
+  else
+    validate_toml "$file" || { echo "FAIL $name invalid-after-write"; [ -f "$bak" ] && restore "$bak" "$file"; return 1; }
+  fi
 
   # Final authority: integration marker present?
   if grep -q "$SERVER_KEY" "$file" 2>/dev/null; then
+    rm -f "$bak" # success: do not leave a copy behind (agent configs may hold secrets)
     echo "OK $name"
     return 0
   fi
   echo "FAIL $name marker-missing"
+  [ -f "$bak" ] && restore "$bak" "$file"
   return 1
 }
 
