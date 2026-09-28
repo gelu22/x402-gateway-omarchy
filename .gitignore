@@ -1,0 +1,22 @@
+# Go
+spike/authcheck
+spike/twscheck
+spike/signcheck
+spike/e2e
+*.test
+*.out
+
+# Node
+node_modules/
+
+# Środowisko i sekrety (konfig lokalny, nie do repo)
+.env
+.env.local
+.dev.vars
+opencode.json
+
+# Generowane
+_docs/MODULE_MAP.md
+backend/.dev.vars
+backend/.wrangler/
+dist/

@@ -1,0 +1,6 @@
+{
+  // Payment network: "eip155:84532" (Base Sepolia) or "eip155:8453" (Base Mainnet)
+  "paymentNetwork": "eip155:84532",
+  // URLs that pay without asking (added from the approval dialog)
+  "rememberedUrls": []
+}
