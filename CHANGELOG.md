@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.8] — 2026-09-28
+
+### Security
+
+- Installer and deinstaller take a state lock, so two concurrent runs cannot
+  interleave and corrupt the install.
+- The plugin bundle is rejected if it carries absolute, `..`, or symlink members,
+  and it is extracted with `--no-same-owner --no-same-permissions`.
+- The daemon is stopped by matching `/proc/<pid>/exe`, not a `pkill -f` pattern
+  over the command line; agent-config backups are `0600` and removed on success.
+- README bootstraps from a **pinned release** and verifies `install.sh` /
+  `uninstall.sh` (sigstore attestation, pinned signer workflow + tag) **before**
+  running them.
+
 ## [0.1.7] — 2026-09-28
 
 ### Security

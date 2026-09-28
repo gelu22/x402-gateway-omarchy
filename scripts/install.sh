@@ -64,6 +64,33 @@ no_symlink() {  # $1=path: refuse a symlinked target (writes would follow it out
   fi
 }
 
+# Single-instance guard: two concurrent installs/removals must not interleave.
+lock_state() {
+  mkdir -p "$STATE_DIR"
+  exec 9>"$STATE_DIR/.lock"
+  if ! flock -n 9; then
+    echo "  ✗ another install/remove/purge is already running." >&2
+    exit 1
+  fi
+}
+
+# The daemon's pid(s), matched by the /proc/<pid>/exe target (not a `pkill -f`
+# regex over the command line, which also matches unrelated processes).
+daemon_pids() {
+  local p pid
+  for p in /proc/[0-9]*/exe; do
+    pid="${p#/proc/}"; pid="${pid%/exe}"
+    [ "$(readlink "$p" 2>/dev/null)" = "$GATEWAY_BIN" ] && printf '%s\n' "$pid"
+  done
+}
+
+stop_daemon() {
+  local pid
+  for pid in $(daemon_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+  sleep 1
+  for pid in $(daemon_pids); do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
 plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
   [ -f "$1/manifest.json" ] || return 0
   sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
@@ -218,10 +245,19 @@ install_config() {  # $1=extracted bundle dir; seeds template only when absent
 do_install() {  # $1=version tag (TMP intentionally global: EXIT trap)
   local VERSION="$1"
   RELEASE_VERSION="$VERSION" # used by verify_provenance --source-ref
+  lock_state
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
   download_release "$VERSION" "$TMP"
   install_binary "$TMP"
-  mkdir -p "$TMP/bundle" && tar -xzf "$TMP/plugin-bundle.tar.gz" -C "$TMP/bundle"
+  mkdir -p "$TMP/bundle"
+  # Reject absolute / traversal / symlink members before extracting.
+  if tar -tzf "$TMP/plugin-bundle.tar.gz" | grep -qE '(^/|(^|/)\.\.(/|$))'; then
+    echo "  ✗ plugin bundle contains an unsafe path" >&2; exit 1
+  fi
+  if tar -tvzf "$TMP/plugin-bundle.tar.gz" | grep -q ' -> '; then
+    echo "  ✗ plugin bundle contains a symlink member" >&2; exit 1
+  fi
+  tar --no-same-owner --no-same-permissions -xzf "$TMP/plugin-bundle.tar.gz" -C "$TMP/bundle"
   install_scripts "$TMP/bundle"
   install_plugin "$TMP/bundle"
   install_config "$TMP/bundle"
@@ -243,13 +279,11 @@ do_purge() {
     echo "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
   fi
   if is_ours "$GATEWAY_BIN"; then
-    pkill -TERM -f "$GATEWAY_BIN" 2>/dev/null || true
-    sleep 1
-    pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
+    stop_daemon
     if command -v omarchy >/dev/null 2>&1; then
       echo "  → restarting the shell (unloads the plugin that respawns the daemon)"
       omarchy restart shell >/dev/null 2>&1 || true
-      pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
+      stop_daemon
     fi
     rm -f "$GATEWAY_BIN"
   elif [ -e "$GATEWAY_BIN" ]; then
@@ -268,7 +302,7 @@ do_purge() {
   [ -e "$SHARE_DIR" ] && left="$left $SHARE_DIR"
   [ -e "$STATE_DIR" ] && left="$left $STATE_DIR"
   [ -e "$CONFIG_DIR" ] && left="$left $CONFIG_DIR"
-  pgrep -f "$GATEWAY_BIN" >/dev/null 2>&1 && left="$left [process]"
+  [ -n "$(daemon_pids)" ] && left="$left [process]"
   if [ -n "$left" ]; then
     echo "LEFTOVER:$left"
     echo "  remove manually, or report: https://github.com/$REPO/issues" >&2
@@ -289,6 +323,7 @@ case "${1:-install}" in
       && echo "helper script installed" || echo "helper script missing"
     ;;
   remove)
+    lock_state
     if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
       echo "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
     else
@@ -317,6 +352,7 @@ case "${1:-install}" in
       echo "usage: install.sh purge --yes  (full wipe; the interactive deinstaller is scripts/uninstall.sh in a checkout)" >&2
       exit 1
     }
+    lock_state
     do_purge
     ;;
   install|latest)

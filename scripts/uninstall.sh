@@ -40,6 +40,30 @@ plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
   sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
 }
 
+lock_state() {
+  mkdir -p "$STATE_DIR"
+  exec 9>"$STATE_DIR/.lock"
+  if ! flock -n 9; then
+    say "  ✗ another install/remove/purge is already running." >&2
+    exit 1
+  fi
+}
+
+daemon_pids() {  # pids whose /proc/<pid>/exe is our gateway (not a cmdline regex)
+  local p pid
+  for p in /proc/[0-9]*/exe; do
+    pid="${p#/proc/}"; pid="${pid%/exe}"
+    [ "$(readlink "$p" 2>/dev/null)" = "$GATEWAY_BIN" ] && printf '%s\n' "$pid"
+  done
+}
+
+stop_daemon() {
+  local pid
+  for pid in $(daemon_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+  sleep 1
+  for pid in $(daemon_pids); do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
 purge_agents() {
   local helper="${SHARE_DIR}/setup-agents.sh"
   if [ ! -x "$helper" ]; then
@@ -62,13 +86,11 @@ purge_program() {
 
   # Stop the daemon only when the binary at the fixed path is ours.
   if is_ours "$GATEWAY_BIN"; then
-    pkill -TERM -f "$GATEWAY_BIN" 2>/dev/null || true
-    sleep 1
-    pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
+    stop_daemon
     if command -v omarchy >/dev/null 2>&1; then
       say "  → restarting the shell (unloads the plugin that respawns the daemon)"
       omarchy restart shell >/dev/null 2>&1 || true
-      pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true # race: respawn before unload
+      stop_daemon
     fi
     rm -f "$GATEWAY_BIN"
   elif [ -e "$GATEWAY_BIN" ]; then
@@ -94,7 +116,7 @@ leftovers() {
   [ -e "$SHARE_DIR" ] && out="${out} ${SHARE_DIR}"
   [ -e "$STATE_DIR" ] && out="${out} ${STATE_DIR}"
   [ -e "$CONFIG_DIR" ] && out="${out} ${CONFIG_DIR}"
-  pgrep -f "$GATEWAY_BIN" >/dev/null 2>&1 && out="${out} [process]"
+  [ -n "$(daemon_pids)" ] && out="${out} [process]"
   printf '%s' "$out"
 }
 
@@ -126,6 +148,7 @@ report_kept() {
 }
 
 do_all() {
+  lock_state
   say "Removing everything (no questions)..."
   purge_agents
   purge_program
@@ -141,6 +164,7 @@ ask() { # $1=prompt $2=default (T|N); reads the terminal, not stdin
 }
 
 interactive() {
+  lock_state
   say "x402 Gateway — deinstaller"
   say "Will remove:"
   say "  • MCP entries in AI agent configs (${AGENTS})"

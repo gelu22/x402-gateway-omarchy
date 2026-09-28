@@ -18,29 +18,33 @@ AI agent ──► MCP / unix socket ──► Go daemon ──► x402 seller
 
 ## Install
 
-The gateway is a bar widget plus a local daemon. The installer sets up both —
-run it from a clone, or download it first. **Never pipe a script straight into a
-shell.**
+The gateway is a bar widget plus a local daemon. Download the installer from a
+**pinned release**, verify its signature, then run it — never pipe a remote
+script straight into a shell:
 
 ```bash
-git clone https://github.com/gelu22/x402-gateway-omarchy.git
+VERSION=v0.1.8   # any released tag (see the Releases page)
+curl -fsSL -o /tmp/x402-install.sh \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh"
+gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION"
+bash /tmp/x402-install.sh "$VERSION"
+```
+
+Or run it from a pinned checkout:
+
+```bash
+git clone --branch v0.1.8 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 cd x402-gateway-omarchy
 bash scripts/install.sh
 ```
 
-Prefer a single file? Download it, then run it:
-
-```bash
-curl -fsSL -o /tmp/x402-install.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/install.sh
-bash /tmp/x402-install.sh
-```
-
-The installer checks sha256 **and** requires a valid sigstore build attestation
-(the GitHub CLI `gh` must be installed; without a valid signature it refuses to
-install). To install without the signature check — offline, or at your own risk —
-prefix the command with `GATEWAY_ALLOW_UNVERIFIED=1`. `install.sh` and
-`uninstall.sh` are shipped as signed release assets, so prefer the release URLs
-above over any branch URL. Then it installs:
+The installer then checks **the daemon binary and the plugin bundle** (sha256
+**and** a valid sigstore build attestation — the GitHub CLI `gh` must be
+installed; without a valid signature it refuses to install). To skip the
+signature check — offline, or at your own risk — prefix the run with
+`GATEWAY_ALLOW_UNVERIFIED=1`. It installs:
 - binary → `~/.local/bin/gateway`
 - QML plugin → `~/.config/omarchy/plugins/gelu22.gateway` (Omarchy only;
   skipped with instructions elsewhere)
@@ -50,29 +54,37 @@ above over any branch URL. Then it installs:
 - state dir `~/.local/state/x402-gateway` (0700)
 
 Other modes: `install.sh verify` (check installation), `install.sh remove`
-(removes binary, plugin and scripts; keeps state), `install.sh v0.1.1`
-(specific release).
+(removes binary, plugin and scripts; keeps state), `install.sh purge --yes`
+(full wipe).
 
 ### Update
 
 There is no auto-update: the installer **copies** the binary and the plugin
-once. To update, re-run the installer — it replaces the binary and the plugin
-and keeps your state (budgets, spend, remembered URLs, session):
+once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-curl -fsSL -o /tmp/x402-install.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/install.sh
-bash /tmp/x402-install.sh
+VERSION=v0.1.8
+curl -fsSL -o /tmp/x402-install.sh \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh"
+gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION"
+bash /tmp/x402-install.sh "$VERSION"
 ```
 
 Check what changed in [CHANGELOG.md](CHANGELOG.md).
 
 ### Uninstall
 
-Interactive deinstaller — asks whether to remove everything or to pick groups
-(agent MCP entries / program / data):
+Interactive deinstaller — download from a pinned release, verify it, then run it:
 
 ```bash
-curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/gelu22/x402-gateway-omarchy/releases/latest/download/uninstall.sh
+VERSION=v0.1.8
+curl -fsSL -o /tmp/x402-uninstall.sh \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh"
+gh attestation verify /tmp/x402-uninstall.sh --repo gelu22/x402-gateway-omarchy \
+  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION"
 bash /tmp/x402-uninstall.sh
 ```
 

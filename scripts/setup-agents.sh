@@ -42,7 +42,7 @@ backup() {
   local f="$1"
   [ -f "$f" ] || return 0
   local bak="$f.bak-$(date +%Y%m%d%H%M%S)"
-  cp "$f" "$bak" && echo "  backup: $bak"
+  cp "$f" "$bak" && chmod 600 "$bak" && echo "  backup: $bak"
 }
 
 restore() {
@@ -174,7 +174,7 @@ integrate_one() {
 
   mkdir -p "$(dirname "$file")"
   bak="$file.bak-$(date +%Y%m%d%H%M%S)"
-  [ -f "$file" ] && cp "$file" "$bak" && echo "  backup: $bak"
+  [ -f "$file" ] && cp "$file" "$bak" && chmod 600 "$bak" && echo "  backup: $bak"
 
   case "$fmt" in
     json) inject_json "$file" "$name" ;;
@@ -218,7 +218,7 @@ remove_one() {
   fi
 
   bak="$file.bak-$(date +%Y%m%d%H%M%S)"
-  cp "$file" "$bak" && echo "  backup: $bak"
+  cp "$file" "$bak" && chmod 600 "$bak" && echo "  backup: $bak"
 
   # Guarded: a strip failure (corrupt input) must roll back, not abort via set -e.
   case "$fmt" in
