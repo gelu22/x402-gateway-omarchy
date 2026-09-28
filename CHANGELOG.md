@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.6] — 2026-09-28
+
+### Security
+
+- The installer no longer overwrites a foreign `setup-agents.sh` (it checks the
+  registry first, like the binary), removes the retired `remember-override.sh`
+  only when it is ours, and the deinstaller stops the daemon only after
+  confirming the binary is ours and removes only the files it owns from the
+  shared directory — never the whole directory.
+
 ## [0.1.5] — 2026-09-28
 
 ### Security

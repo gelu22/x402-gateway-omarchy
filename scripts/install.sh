@@ -128,9 +128,19 @@ install_binary() {  # $1=tmpdir
 
 install_scripts() {  # $1=extracted bundle dir
   mkdir -p "$SHARE_DIR"
+  if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
+    echo "  ✗ $SHARE_DIR/setup-agents.sh already exists and was not installed by this installer." >&2
+    echo "    Move it away first, or re-run with GATEWAY_FORCE=1 to overwrite." >&2
+    [ "${GATEWAY_FORCE:-}" = "1" ] || exit 1
+  fi
   install -m 755 "$1/scripts/setup-agents.sh" "$SHARE_DIR/"
-  rm -f "$SHARE_DIR/remember-override.sh" # retired in 009.7 (config file now)
   registry_set "$SHARE_DIR/setup-agents.sh"
+  # Retired file (009.7): remove it only when it is ours.
+  if [ -e "$SHARE_DIR/remember-override.sh" ] && ! is_ours "$SHARE_DIR/remember-override.sh"; then
+    echo "  ⚠ keeping $SHARE_DIR/remember-override.sh (not ours)"
+  else
+    rm -f "$SHARE_DIR/remember-override.sh"
+  fi
   echo "✓ installed helper script to $SHARE_DIR"
 }
 
@@ -218,7 +228,11 @@ case "${1:-install}" in
     else
       rm -f "$SHARE_DIR/setup-agents.sh"
     fi
-    rm -f "$SHARE_DIR/remember-override.sh"
+    if [ -e "$SHARE_DIR/remember-override.sh" ] && ! is_ours "$SHARE_DIR/remember-override.sh"; then
+      echo "  ⚠ keeping $SHARE_DIR/remember-override.sh (not ours)"
+    else
+      rm -f "$SHARE_DIR/remember-override.sh"
+    fi
     echo "removed binary, plugin and helper script (state kept at $STATE_DIR, config kept at $CONFIG_FILE)"
     ;;
   purge)

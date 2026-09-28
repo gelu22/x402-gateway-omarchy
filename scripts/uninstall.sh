@@ -59,24 +59,30 @@ purge_program() {
   elif [ -e "$PLUGIN_DIR" ]; then
     say "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
   fi
-  pkill -TERM -f "$GATEWAY_BIN" 2>/dev/null || true
-  sleep 1
-  pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
-  if command -v omarchy >/dev/null 2>&1; then
-    say "  → restarting the shell (unloads the plugin that respawns the daemon)"
-    omarchy restart shell >/dev/null 2>&1 || true
-    pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true # race: respawn before unload
-  fi
-  if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
-    say "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
-  else
+
+  # Stop the daemon only when the binary at the fixed path is ours.
+  if is_ours "$GATEWAY_BIN"; then
+    pkill -TERM -f "$GATEWAY_BIN" 2>/dev/null || true
+    sleep 1
+    pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
+    if command -v omarchy >/dev/null 2>&1; then
+      say "  → restarting the shell (unloads the plugin that respawns the daemon)"
+      omarchy restart shell >/dev/null 2>&1 || true
+      pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true # race: respawn before unload
+    fi
     rm -f "$GATEWAY_BIN"
+  elif [ -e "$GATEWAY_BIN" ]; then
+    say "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
   fi
-  if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
-    say "  ⚠ keeping $SHARE_DIR/setup-agents.sh (not ours)"
-  else
-    rm -rf "$SHARE_DIR"
-  fi
+
+  # Shared dir: remove only the files we own; never wipe the whole directory.
+  for f in setup-agents.sh remember-override.sh; do
+    local p="$SHARE_DIR/$f"
+    if [ ! -e "$p" ]; then continue
+    elif is_ours "$p"; then rm -f "$p"
+    else say "  ⚠ keeping $p (not ours)"; fi
+  done
+  rmdir "$SHARE_DIR" 2>/dev/null || true # only if it is now empty
 }
 
 purge_data() { rm -rf "$STATE_DIR" "$CONFIG_DIR"; }
