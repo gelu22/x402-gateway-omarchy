@@ -1,0 +1,34 @@
+name: Triage
+
+# First response on the PUBLIC repo: label a new issue and post a short, safe
+# acknowledgement. No LLM, no code execution — a human still answers, and
+# security reports are pointed at private vulnerability reporting.
+#
+# This file lives in the private monorepo as deploy/triage-issues.yml (NOT under
+# .github/workflows/, so it never runs there) and scripts/publish-public.sh
+# copies it into the public snapshot as .github/workflows/triage.yml.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  acknowledge:
+    if: github.event.issue.user.login != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label and acknowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUM: ${{ github.event.issue.number }}
+        run: |
+          gh label create triage --repo "$REPO" \
+            --color FBCA04 --description "Needs triage" 2>/dev/null || true
+          gh issue edit "$NUM" --repo "$REPO" --add-label triage
+          gh issue comment "$NUM" --repo "$REPO" --body \
+            "Thanks for the report — a maintainer will take a look.
+
+          If this is **security-sensitive** (a vulnerability, a leaked credential, anything about signing or spending), please close this and use **Security → Report a vulnerability** instead of a public issue."

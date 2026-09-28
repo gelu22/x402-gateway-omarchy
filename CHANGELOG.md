@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.4] — 2026-09-28
+
+### Changed
+
+- Repository: new issues are labeled `triage` and acknowledged automatically, and
+  security-sensitive reports are pointed at private vulnerability reporting.
+
 ## [0.1.3] — 2026-09-28
 
 ### Changed
