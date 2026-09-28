@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.2] — 2026-09-28
+
+### Changed
+
+- README: the Coinbase per-payment ceiling is documented as `X` — what it is,
+  why it is the only limit that cannot be lifted from your machine, and how to
+  choose it (keep `X` close to the daily budget, ~$5–10, rather than the loose
+  $50 this deployment ships).
+
 ## [0.1.1] — 2026-09-28
 
 ### Added

@@ -163,12 +163,16 @@ ask). It is the only control on the *sum* you spend in a day:
 - **Remember this URL** pre-authorizes one endpoint (even above budget). The
   remembered list lives in the plugin config file, not inline in the panel.
 
-**2. Hard per-payment ceiling — set at Coinbase (50 USDC in this deployment).**
+**2. Hard per-payment ceiling — enforced by Coinbase (`X`, 50 USDC in this deployment).**
 When the operator has configured it, a rule in Coinbase's Policy Engine, enforced
 inside Coinbase's TEE *before* any signature, caps what a **single** payment may
 move. It exists precisely because the daily budget is a file on your machine: the
 ceiling is not, so tampering with that file cannot lift it.
 
+- **Pick `X` close to your daily budget.** `X` is the most one *single* payment
+  can move; the default budget is $5/day, so an `X` of about **$5–10** is the
+  natural fit. This deployment ships `X = $50`, deliberately loose — lower it if
+  you do not expect expensive purchases.
 - A single payment can never exceed the ceiling, whatever your daily budget says.
 - **Keep the daily budget ≤ the ceiling.** A higher budget still works, but the
   ceiling clamps every single payment, so the excess can only leave in several
@@ -177,7 +181,8 @@ ceiling is not, so tampering with that file cannot lift it.
   **cannot be approved from the panel** — the panel shows the reason.
 - The ceiling is a **per-signature** limit, not a daily one: Coinbase's policy
   engine has no daily sum. The number of payments per day is still bounded by
-  layer 1, which is local.
+  layer 1 — which is local and tamperable, so against stolen credentials `X`
+  bounds **each** signature and your wallet balance bounds the total.
 - The ceiling is **project-wide**: it is one rule for the whole CDP project this
   deployment uses, so it applies to every user of it (and project quotas are
   shared). It is a safety ceiling, not a per-user budget. What that means for
