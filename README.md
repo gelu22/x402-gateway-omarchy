@@ -18,8 +18,21 @@ AI agent ──► MCP / unix socket ──► Go daemon ──► x402 seller
 
 ## Install
 
+The gateway is a bar widget plus a local daemon. The installer sets up both —
+run it from a clone, or download it first. **Never pipe a script straight into a
+shell.**
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh | bash
+git clone https://github.com/gelu22/x402-gateway-omarchy.git
+cd x402-gateway-omarchy
+bash scripts/install.sh
+```
+
+Prefer a single file? Download it, then run it:
+
+```bash
+curl -fsSL -o /tmp/x402-install.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh
+bash /tmp/x402-install.sh
 ```
 
 The installer verifies sha256 checksums plus sigstore build attestations
@@ -35,7 +48,7 @@ attestations install sha256-only). Attestation covers release files only, not
 - state dir `~/.local/state/x402-gateway` (0700)
 
 Other modes: `install.sh verify` (check installation), `install.sh remove`
-(removes binary, plugin and scripts; keeps state), `install.sh v0.1.0`
+(removes binary, plugin and scripts; keeps state), `install.sh v0.1.1`
 (specific release).
 
 ### Update
@@ -45,7 +58,8 @@ once. To update, re-run the installer — it replaces the binary and the plugin
 and keeps your state (budgets, spend, remembered URLs, session):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh | bash
+curl -fsSL -o /tmp/x402-install.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/install.sh
+bash /tmp/x402-install.sh
 ```
 
 Check what changed in [CHANGELOG.md](CHANGELOG.md).
@@ -56,7 +70,8 @@ Interactive deinstaller — asks whether to remove everything or to pick groups
 (agent MCP entries / program / data):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/uninstall.sh | bash
+curl -fsSL -o /tmp/x402-uninstall.sh https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/uninstall.sh
+bash /tmp/x402-uninstall.sh
 ```
 
 Everything at once, no questions (stops the daemon, removes the binary, the
@@ -64,7 +79,7 @@ plugin, the helper, the agent MCP entries, your state **including the audit
 log**, and the plugin config):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gelu22/x402-gateway-omarchy/master/scripts/uninstall.sh | bash -s -- --yes
+bash /tmp/x402-uninstall.sh --yes
 ```
 
 `install.sh remove` is the non-destructive variant: it removes the binary, the

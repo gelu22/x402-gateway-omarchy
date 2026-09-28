@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "gelu22.gateway",
   "name": "x402 Gateway",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "gelu22",
   "license": "MIT",
   "description": "Automatic x402 payment gateway for local AI agents (USDC on Base).",

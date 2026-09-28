@@ -4,7 +4,7 @@
 # Modes:
 #   (interactive)  asks: remove EVERYTHING without further questions, or step by
 #                  step (pick groups). Reads from /dev/tty, so it also works
-#                  when piped: curl ... | bash
+#                  when the script is downloaded and run directly.
 #   --yes          remove everything, no questions (scripts, CI)
 #
 # Groups: agents (MCP entries), program (processes+binary+plugin+helper+shell),
@@ -147,7 +147,8 @@ case "${1:-}" in
     else
       say "No terminal (stdin is not a TTY) — interactive mode unavailable."
       say "To remove everything without questions, run:"
-      say "  curl -fsSL https://raw.githubusercontent.com/${REPO}/master/scripts/uninstall.sh | bash -s -- --yes"
+      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://raw.githubusercontent.com/${REPO}/master/scripts/uninstall.sh"
+      say "  bash /tmp/x402-uninstall.sh --yes"
       exit 1
     fi
     ;;

@@ -159,12 +159,14 @@ case "${1:-install}" in
     ;;
   purge)
     shift
-    # A checkout next to install.sh wins (offline/testable); otherwise fetch the
-    # same way this script was delivered.
+    # A checkout next to install.sh wins (offline/testable); otherwise download
+    # the deinstaller and run it (no pipe-to-shell).
     if [ -f "$(dirname "$0")/uninstall.sh" ]; then
       bash "$(dirname "$0")/uninstall.sh" "$@"
     else
-      fetch "https://raw.githubusercontent.com/$REPO/master/scripts/uninstall.sh" | bash -s -- "$@"
+      PURGE_TMP="$(mktemp -d)"; trap 'rm -rf "$PURGE_TMP"' EXIT
+      fetch "https://raw.githubusercontent.com/$REPO/master/scripts/uninstall.sh" -o "$PURGE_TMP/uninstall.sh"
+      bash "$PURGE_TMP/uninstall.sh" "$@"
     fi
     ;;
   install|latest)

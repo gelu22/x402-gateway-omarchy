@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
-## [Unreleased]
+## [0.1.1] — 2026-09-28
 
 ### Added
 
@@ -12,6 +12,10 @@ Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
   whether to remove everything without further questions or to pick groups
   (agent MCP entries, program, data); `--yes` for a scripted full wipe; refuses
   and changes nothing without a terminal and without `--yes`.
+- `preview.png` at the repository root for the Omarchy plugin catalogue.
+- Install/update/uninstall no longer pipe a remote script into a shell
+  (`curl … | bash`): the README and `install.sh purge` download the script and
+  run it, or install from a clone.
 
 ### Changed
 
