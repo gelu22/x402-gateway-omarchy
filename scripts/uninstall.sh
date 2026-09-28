@@ -22,8 +22,23 @@ SHARE_DIR="${HOME}/.local/share/x402-gateway"
 PLUGIN_DIR="${HOME}/.config/omarchy/plugins/gelu22.gateway"
 CONFIG_DIR="${HOME}/.config/omarchy/x402-gateway"
 AGENTS="opencode,claude-code,cursor,codex,gemini"
+PLUGIN_ID="gelu22.gateway"
+REGISTRY="$STATE_DIR/installed.sha256"
 
 say() { printf '%s\n' "$*"; }
+
+is_ours() {  # $1=path: true iff it exists and its sha matches the recording
+  local want
+  [ -f "$1" ] && [ -f "$REGISTRY" ] || return 1
+  want="$(awk -v p="$1" '$2 == p {print $1}' "$REGISTRY" | tail -1)"
+  [ -n "$want" ] || return 1
+  [ "$(sha256sum "$1" | awk '{print $1}')" = "$want" ]
+}
+
+plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
+  [ -f "$1/manifest.json" ] || return 0
+  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
+}
 
 purge_agents() {
   local helper="${SHARE_DIR}/setup-agents.sh"
@@ -31,11 +46,19 @@ purge_agents() {
     say "  – no ${helper} (skipping MCP entries)"
     return 0
   fi
+  if ! is_ours "$helper"; then
+    say "  ⚠ ${helper} is not the helper this installer placed (skipping MCP entries)"
+    return 0
+  fi
   "$helper" --remove "$AGENTS" || say "  ! setup-agents --remove failed (check .bak-* backups)"
 }
 
 purge_program() {
-  rm -rf "$PLUGIN_DIR"
+  if [ -d "$PLUGIN_DIR" ] && [ "$(plugin_id_at "$PLUGIN_DIR")" = "$PLUGIN_ID" ]; then
+    rm -rf "$PLUGIN_DIR"
+  elif [ -e "$PLUGIN_DIR" ]; then
+    say "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
+  fi
   pkill -TERM -f "$GATEWAY_BIN" 2>/dev/null || true
   sleep 1
   pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true
@@ -44,8 +67,16 @@ purge_program() {
     omarchy restart shell >/dev/null 2>&1 || true
     pkill -KILL -f "$GATEWAY_BIN" 2>/dev/null || true # race: respawn before unload
   fi
-  rm -f "$GATEWAY_BIN"
-  rm -rf "$SHARE_DIR"
+  if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
+    say "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
+  else
+    rm -f "$GATEWAY_BIN"
+  fi
+  if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
+    say "  ⚠ keeping $SHARE_DIR/setup-agents.sh (not ours)"
+  else
+    rm -rf "$SHARE_DIR"
+  fi
 }
 
 purge_data() { rm -rf "$STATE_DIR" "$CONFIG_DIR"; }

@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.5] — 2026-09-28
+
+### Security
+
+- The installer and deinstaller no longer overwrite or delete paths they did not
+  create. A sha256 registry under the private state directory records what was
+  installed, and install/update/remove refuse a foreign `gateway` binary, a
+  plugin directory owned by another plugin, or a foreign setup helper (set
+  `GATEWAY_FORCE=1` to override deliberately).
+
 ## [0.1.4] — 2026-09-28
 
 ### Changed

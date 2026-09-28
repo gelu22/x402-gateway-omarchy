@@ -28,7 +28,36 @@ PLUGIN_DIR="${HOME}/.config/omarchy/plugins/gelu22.gateway"
 CONFIG_DIR="${HOME}/.config/omarchy/x402-gateway"
 CONFIG_FILE="${CONFIG_DIR}/config.json"
 PLUGIN_ID="gelu22.gateway"
+GATEWAY_BIN="${BIN_DIR}/gateway"
 ARCH="$(uname -m)"; case "$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) echo "unsupported arch $ARCH"; exit 1;; esac
+
+# -- installed-file registry (safety) ----------------------------------------
+# $STATE_DIR/installed.sha256 records what THIS installer put on disk, so an
+# install/update/remove never overwrites or deletes a path it did not create.
+REGISTRY="$STATE_DIR/installed.sha256"
+
+is_ours() {  # $1=path: true iff it exists and its sha matches the recording
+  local want
+  [ -f "$1" ] && [ -f "$REGISTRY" ] || return 1
+  want="$(awk -v p="$1" '$2 == p {print $1}' "$REGISTRY" | tail -1)"
+  [ -n "$want" ] || return 1
+  [ "$(sha256sum "$1" | awk '{print $1}')" = "$want" ]
+}
+
+registry_set() {  # $1=path: record/refresh its sha
+  [ -f "$1" ] || return 0
+  local dir tmp
+  dir="$(dirname "$REGISTRY")"; mkdir -p "$dir"
+  tmp="$(mktemp "$dir/.reg.XXXXXX")"
+  [ -f "$REGISTRY" ] && awk -v p="$1" '$2 != p' "$REGISTRY" > "$tmp"
+  sha256sum "$1" >> "$tmp"
+  mv "$tmp" "$REGISTRY"
+}
+
+plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
+  [ -f "$1/manifest.json" ] || return 0
+  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
+}
 
 fetch() { curl -fsSL -m 60 "$@"; }
 
@@ -86,8 +115,14 @@ verify_provenance() {  # $1=file
 
 install_binary() {  # $1=tmpdir
   mkdir -p "$BIN_DIR" "$STATE_DIR" && chmod 700 "$STATE_DIR"
-  install -m 755 "$1/gateway" "$BIN_DIR/gateway"
-  echo "✓ installed $BIN_DIR/gateway"
+  if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
+    echo "  ✗ $GATEWAY_BIN already exists and was not installed by this installer." >&2
+    echo "    Move it away first, or re-run with GATEWAY_FORCE=1 to overwrite." >&2
+    [ "${GATEWAY_FORCE:-}" = "1" ] || exit 1
+  fi
+  install -m 755 "$1/gateway" "$GATEWAY_BIN"
+  registry_set "$GATEWAY_BIN"
+  echo "✓ installed $GATEWAY_BIN"
   echo "  state dir: $STATE_DIR"
 }
 
@@ -95,6 +130,7 @@ install_scripts() {  # $1=extracted bundle dir
   mkdir -p "$SHARE_DIR"
   install -m 755 "$1/scripts/setup-agents.sh" "$SHARE_DIR/"
   rm -f "$SHARE_DIR/remember-override.sh" # retired in 009.7 (config file now)
+  registry_set "$SHARE_DIR/setup-agents.sh"
   echo "✓ installed helper script to $SHARE_DIR"
 }
 
@@ -102,6 +138,15 @@ install_plugin() {  # $1=extracted bundle dir
   if [ ! -d "${HOME}/.config/omarchy" ]; then
     echo "  ⚠ no ~/.config/omarchy — skipping QML plugin (manual: copy plugin/omarchy/ to ~/.config/omarchy/plugins/$PLUGIN_ID)"
     return 0
+  fi
+  if [ -e "$PLUGIN_DIR" ] && [ ! -d "$PLUGIN_DIR" ]; then
+    echo "  ✗ $PLUGIN_DIR exists and is not a directory — refusing." >&2
+    exit 1
+  fi
+  existing_id="$(plugin_id_at "$PLUGIN_DIR")"
+  if [ -n "$existing_id" ] && [ "$existing_id" != "$PLUGIN_ID" ]; then
+    echo "  ✗ $PLUGIN_DIR holds plugin '$existing_id' — refusing to overwrite." >&2
+    exit 1
   fi
   mkdir -p "$PLUGIN_DIR"
   cp "$1/plugin/omarchy/"*.qml "$1/plugin/omarchy/"*.js "$1/plugin/omarchy/manifest.json" "$PLUGIN_DIR/"
@@ -158,8 +203,22 @@ case "${1:-install}" in
       && echo "helper script installed" || echo "helper script missing"
     ;;
   remove)
-    rm -f "$BIN_DIR/gateway"
-    rm -rf "$PLUGIN_DIR" "$SHARE_DIR/setup-agents.sh" "$SHARE_DIR/remember-override.sh"
+    if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
+      echo "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
+    else
+      rm -f "$GATEWAY_BIN"
+    fi
+    if [ -d "$PLUGIN_DIR" ] && [ "$(plugin_id_at "$PLUGIN_DIR")" = "$PLUGIN_ID" ]; then
+      rm -rf "$PLUGIN_DIR"
+    elif [ -e "$PLUGIN_DIR" ]; then
+      echo "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
+    fi
+    if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
+      echo "  ⚠ keeping $SHARE_DIR/setup-agents.sh (not ours)"
+    else
+      rm -f "$SHARE_DIR/setup-agents.sh"
+    fi
+    rm -f "$SHARE_DIR/remember-override.sh"
     echo "removed binary, plugin and helper script (state kept at $STATE_DIR, config kept at $CONFIG_FILE)"
     ;;
   purge)
