@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.10] — 2026-09-28
+
+### Security
+
+- The README's documented install/update/uninstall version is now substituted
+  automatically at publish time, so the instructions always point at the release
+  that includes the latest fixes (no stale tags).
+- The deinstaller's no-terminal hint is a single fail-closed `&&` chain (download,
+  verify with `--source-ref`, run) — a failed download cannot leave a stale script
+  to be executed.
+
 ## [0.1.9] — 2026-09-28
 
 ### Security

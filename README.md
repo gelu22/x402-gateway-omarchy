@@ -23,7 +23,7 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.8   # any released tag (see the Releases page)
+VERSION=v0.1.10   # any released tag (see the Releases page)
 curl -fsSL -o /tmp/x402-install.sh \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
 && gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
@@ -35,7 +35,7 @@ curl -fsSL -o /tmp/x402-install.sh \
 Or read the code first and run it from a pinned checkout:
 
 ```bash
-git clone --branch v0.1.8 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.10 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 cd x402-gateway-omarchy
 bash scripts/install.sh
 ```
@@ -63,7 +63,7 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.8
+VERSION=v0.1.10
 curl -fsSL -o /tmp/x402-install.sh \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
 && gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
@@ -79,7 +79,7 @@ Check what changed in [CHANGELOG.md](CHANGELOG.md).
 Interactive deinstaller — download from a pinned release, verify it, then run it:
 
 ```bash
-VERSION=v0.1.8
+VERSION=v0.1.10
 curl -fsSL -o /tmp/x402-uninstall.sh \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
 && gh attestation verify /tmp/x402-uninstall.sh --repo gelu22/x402-gateway-omarchy \

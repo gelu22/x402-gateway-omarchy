@@ -207,10 +207,8 @@ case "${1:-}" in
       interactive
     else
       say "No terminal (stdin is not a TTY) — interactive mode unavailable."
-      say "To remove everything without questions, download the deinstaller from a"
-      say "pinned release, verify it, then run it:"
-      say "  curl -fsSL -o /tmp/x402-uninstall.sh https://github.com/${REPO}/releases/download/<tag>/uninstall.sh"
-      say "  gh attestation verify /tmp/x402-uninstall.sh --repo ${REPO} && bash /tmp/x402-uninstall.sh --yes"
+      say "To remove everything without questions, pick a released tag, then run:"
+      say "  TAG=<released tag> && curl -fsSL -o /tmp/x402-uninstall.sh \"https://github.com/${REPO}/releases/download/\$TAG/uninstall.sh\" && gh attestation verify /tmp/x402-uninstall.sh --repo ${REPO} --signer-workflow ${REPO}/.github/workflows/release.yml --source-ref \"refs/tags/\$TAG\" && bash /tmp/x402-uninstall.sh --yes"
       exit 1
     fi
     ;;
