@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.11] — 2026-09-29
+
+### Security
+
+- The README no longer offers an unverified checkout execution path: cloning a
+  tag is documented for **inspection only**, and the single documented way to run
+  the installer is the pinned download plus attestation check. A moved tag can no
+  longer silently run a different installer than the reviewed release.
+- Added `scripts/preflight.sh` (the pre-push gate) and wired the container test
+  into CI.
+
 ## [0.1.10] — 2026-09-28
 
 ### Security
