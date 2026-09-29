@@ -23,13 +23,14 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.11   # any released tag (see the Releases page)
-curl -fsSL -o /tmp/x402-install.sh \
+VERSION=v0.1.12   # any released tag (see the Releases page)
+TMP="$(mktemp -d)"
+curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
-&& gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+&& gh attestation verify "$TMP/install.sh" --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
   --source-ref "refs/tags/$VERSION" \
-&& bash /tmp/x402-install.sh "$VERSION"
+&& bash "$TMP/install.sh" "$VERSION"
 ```
 
 Want to read the code first? Clone the **same pinned tag** (for inspection only)
@@ -38,7 +39,7 @@ copy: it is not attestation-checked, and a moved tag would silently run a
 different installer.
 
 ```bash
-git clone --branch v0.1.11 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.12 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 less x402-gateway-omarchy/scripts/install.sh
 ```
 
@@ -65,38 +66,50 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.11
-curl -fsSL -o /tmp/x402-install.sh \
+VERSION=v0.1.12
+TMP="$(mktemp -d)"
+curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
-&& gh attestation verify /tmp/x402-install.sh --repo gelu22/x402-gateway-omarchy \
+&& gh attestation verify "$TMP/install.sh" --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
   --source-ref "refs/tags/$VERSION" \
-&& bash /tmp/x402-install.sh "$VERSION"
+&& bash "$TMP/install.sh" "$VERSION"
 ```
 
 Check what changed in [CHANGELOG.md](CHANGELOG.md).
 
 ### Uninstall
 
-Interactive deinstaller — download from a pinned release, verify it, then run it:
+Interactive deinstaller — one self-contained chain (download → verify → run):
 
 ```bash
-VERSION=v0.1.11
-curl -fsSL -o /tmp/x402-uninstall.sh \
+VERSION=v0.1.12
+TMP="$(mktemp -d)"
+curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
-&& gh attestation verify /tmp/x402-uninstall.sh --repo gelu22/x402-gateway-omarchy \
+&& gh attestation verify "$TMP/uninstall.sh" --repo gelu22/x402-gateway-omarchy \
   --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
   --source-ref "refs/tags/$VERSION" \
-&& bash /tmp/x402-uninstall.sh
+&& bash "$TMP/uninstall.sh"
 ```
 
 Everything at once, no questions (stops the daemon, removes the binary, the
 plugin, the helper, the agent MCP entries, your state **including the audit
-log**, and the plugin config):
+log**, and the plugin config) — the same self-contained chain, with `--yes`:
 
 ```bash
-bash /tmp/x402-uninstall.sh --yes
+VERSION=v0.1.12
+TMP="$(mktemp -d)"
+curl -fsSL -o "$TMP/uninstall.sh" \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
+&& gh attestation verify "$TMP/uninstall.sh" --repo gelu22/x402-gateway-omarchy \
+  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION" \
+&& bash "$TMP/uninstall.sh" --yes
 ```
+
+Every command above downloads and verifies **its own** copy into a fresh
+`mktemp -d`; no step reuses a script from an earlier one.
 
 `install.sh remove` is the non-destructive variant: it removes the binary, the
 QML plugin and the helper script and **keeps your state and config** (session,

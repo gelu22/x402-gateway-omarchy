@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.12] — 2026-09-29
+
+### Security
+
+- Every documented install/update/uninstall command is now a **self-contained
+  fail-closed chain** (download → attestation verify → run) into a fresh
+  `mktemp -d`. Nothing is reused from an earlier step and no predictable `/tmp`
+  path is used, so a stale or replaced script cannot perform the destructive
+  purge without verified provenance.
+- The deinstaller's no-terminal hint follows the same pattern.
+
 ## [0.1.11] — 2026-09-29
 
 ### Security
