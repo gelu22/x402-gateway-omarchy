@@ -63,7 +63,7 @@ func Install(opts Options) error {
 	if err := ownedByUs(binPath); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(binPath); err == nil && !opts.Force && !isOurs(opts.StateDir, binPath) {
+	if _, err := os.Lstat(binPath); err == nil && !opts.Force && !IsOurs(opts.StateDir, binPath) {
 		return fmt.Errorf("%s already exists and was not installed by this installer", binPath)
 	}
 	if err := installFileAtomically(opts.BinarySrc, opts.BinDir, "gateway", 0o755); err != nil {
@@ -80,7 +80,7 @@ func Install(opts Options) error {
 		if err := refuseSymlink(helperDst); err != nil {
 			return rollback(err)
 		}
-		if _, err := os.Lstat(helperDst); err == nil && !opts.Force && !isOurs(opts.StateDir, helperDst) {
+		if _, err := os.Lstat(helperDst); err == nil && !opts.Force && !IsOurs(opts.StateDir, helperDst) {
 			return rollback(fmt.Errorf("%s already exists and was not installed by this installer", helperDst))
 		}
 		if err := installFileAtomically(helperSrc, opts.ShareDir, "setup-agents.sh", 0o755); err != nil {
@@ -94,7 +94,7 @@ func Install(opts Options) error {
 	// Retired helper: drop only when ours.
 	retired := filepath.Join(opts.ShareDir, "remember-override.sh")
 	if _, err := os.Lstat(retired); err == nil {
-		if isOurs(opts.StateDir, retired) || opts.Force {
+		if IsOurs(opts.StateDir, retired) || opts.Force {
 			_ = removeOurs(opts.StateDir, retired, true)
 		}
 	}

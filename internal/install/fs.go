@@ -95,7 +95,7 @@ func removeOurs(stateDir, path string, force bool) error {
 	if !st.Mode().IsRegular() {
 		return fmt.Errorf("install: %s is not a regular file", path)
 	}
-	if !force && !isOurs(stateDir, path) {
+	if !force && !IsOurs(stateDir, path) {
 		return fmt.Errorf("install: keeping %s (not installed by this installer)", path)
 	}
 	dir := filepath.Dir(path)

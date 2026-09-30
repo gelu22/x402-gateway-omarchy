@@ -46,6 +46,23 @@ check_file() {  # $1=dir/file $2=expected-sha
   [ "$actual" = "$2" ] || { echo "CHECKSUM MISMATCH for $1"; exit 1; }
 }
 
+
+# is_ours: same contract as Go install.IsOurs — regular non-symlink file whose
+# sha256 matches $STATE_DIR/installed.sha256 (sha256sum "sum  path" lines).
+is_ours() {
+  local path="$1" reg want got
+  reg="${STATE_DIR}/installed.sha256"
+  [ -f "$path" ] || return 1
+  [ ! -L "$path" ] || return 1
+  [ -f "$reg" ] || return 1
+  # Match Go: line[66:] == path (64-hex digest + two spaces).
+  want="$(awk -v p="$path" 'length($0) >= 67 && substr($0, 67) == p { print $1 }' "$reg" | tail -n1)"
+  [ -n "$want" ] || return 1
+  got="$(sha256sum "$path" | awk '{print $1}')"
+  [ "$got" = "$want" ]
+}
+
+
 download_release() {  # $1=version $2=tmpdir; sets BUNDLE + SHA files
   local version="$1" tmp="$2" sums base
   base="${GATEWAY_RELEASE_BASE:-https://github.com/$REPO/releases/download/$version}"
@@ -180,9 +197,12 @@ do_install() {
 }
 
 do_purge() {
-  if [ -x "$SHARE_DIR/setup-agents.sh" ]; then
-    "$SHARE_DIR/setup-agents.sh" --remove "$AGENTS" \
+  local helper="${SHARE_DIR}/setup-agents.sh"
+  if [ -x "$helper" ] && is_ours "$helper"; then
+    "$helper" --remove "$AGENTS" \
       || echo "  ! setup-agents --remove failed (check .bak-* backups)" >&2
+  elif [ -e "$helper" ]; then
+    echo "  – skipping MCP cleanup (helper is not ours / not in registry)" >&2
   fi
   stop_daemon
   if command -v omarchy >/dev/null 2>&1; then

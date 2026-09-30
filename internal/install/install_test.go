@@ -72,7 +72,7 @@ func TestInstallHappyPath(t *testing.T) {
 	if _, err := os.Stat(gw); err != nil {
 		t.Fatal(err)
 	}
-	if !isOurs(opts.StateDir, gw) {
+	if !IsOurs(opts.StateDir, gw) {
 		t.Fatal("binary not in registry")
 	}
 	if _, err := os.Stat(filepath.Join(opts.PluginDir, "manifest.json")); err != nil {
@@ -170,5 +170,32 @@ func TestSelfRemoveAfterInstall(t *testing.T) {
 	}
 	if _, err := os.Stat(opts.PluginDir); !os.IsNotExist(err) {
 		t.Fatal("plugin leftover")
+	}
+}
+
+func TestIsOursRegistryMatch(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(dir, "setup-agents.sh")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\necho ours\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsOurs(state, helper) {
+		t.Fatal("unregistered helper must not be ours")
+	}
+	if err := registrySet(state, helper); err != nil {
+		t.Fatal(err)
+	}
+	if !IsOurs(state, helper) {
+		t.Fatal("registered helper must be ours")
+	}
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\necho foreign\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsOurs(state, helper) {
+		t.Fatal("tampered helper must not be ours")
 	}
 }

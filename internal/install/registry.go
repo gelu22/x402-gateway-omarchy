@@ -36,9 +36,9 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// isOurs reports whether path is a regular non-symlink file whose sha matches
-// the registry entry (same format as the legacy bash installer).
-func isOurs(stateDir, path string) bool {
+// IsOurs reports whether path is a regular non-symlink file whose sha matches
+// the registry entry (same format as the legacy bash installer / sha256sum).
+func IsOurs(stateDir, path string) bool {
 	st, err := os.Lstat(path)
 	if err != nil || !st.Mode().IsRegular() {
 		return false

@@ -32,6 +32,22 @@ daemon_pids() {
   done
 }
 
+
+# is_ours: same contract as Go install.IsOurs — regular non-symlink file whose
+# sha256 matches $STATE_DIR/installed.sha256 (sha256sum "sum  path" lines).
+is_ours() {
+  local path="$1" reg want got
+  reg="${STATE_DIR}/installed.sha256"
+  [ -f "$path" ] || return 1
+  [ ! -L "$path" ] || return 1
+  [ -f "$reg" ] || return 1
+  # Match Go: line[66:] == path (64-hex digest + two spaces).
+  want="$(awk -v p="$path" 'length($0) >= 67 && substr($0, 67) == p { print $1 }' "$reg" | tail -n1)"
+  [ -n "$want" ] || return 1
+  got="$(sha256sum "$path" | awk '{print $1}')"
+  [ "$got" = "$want" ]
+}
+
 stop_daemon() {
   local pid
   for pid in $(daemon_pids); do kill -TERM "$pid" 2>/dev/null || true; done
@@ -43,6 +59,10 @@ purge_agents() {
   local helper="${SHARE_DIR}/setup-agents.sh"
   if [ ! -x "$helper" ]; then
     say "  – no ${helper} (skipping MCP entries)"
+    return 0
+  fi
+  if ! is_ours "$helper"; then
+    say "  – skipping MCP cleanup (helper is not ours / not in registry)"
     return 0
   fi
   "$helper" --remove "$AGENTS" || say "  ! setup-agents --remove failed (check .bak-* backups)"

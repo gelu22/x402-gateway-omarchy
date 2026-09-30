@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.15] — 2026-09-30
+
+### Security
+
+- **Purge/uninstall helper ownership (M5)**: `install.sh` purge and
+  `uninstall.sh` run `setup-agents.sh --remove` only when the helper matches
+  `$STATE_DIR/installed.sha256` (same contract as Go `install.IsOurs`). A foreign
+  helper is never executed; MCP cleanup is skipped with a clear message. Ratchet
+  tests: `install_test` case (o), `uninstall_test`.
+
 ## [0.1.14] — 2026-09-30
 
 ### Changed
