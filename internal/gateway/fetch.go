@@ -4,17 +4,20 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
+	"gateway/internal/budget"
 	"gateway/internal/policy"
 	"gateway/internal/x402"
 )
 
 // doFetch is the shared implementation for Fetch and FetchWithOverride.
-// If overrideAmountMicro > 0, the daily-budget test is skipped (the user
-// already approved this over-budget payment in the panel).
+// If overrideAmountMicro > 0, the daily-cap test is skipped (the user already
+// approved this over-budget payment); the amount is still reserved.
 func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byte, headers map[string]string, overrideAmountMicro int64, approveSeller bool) (result *FetchResult, err error) {
 	var auditAmount int64
 	audited := false
@@ -42,8 +45,7 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 	if rerr != nil {
 		return nil, rerr
 	}
-	// A flow that did not settle releases its claim (a retry after a denial must
-	// work); a paid flow keeps the mark written by markSigned.
+	// Unsettled flows release the claim; paid flows keep markSigned.
 	defer func() {
 		if err != nil {
 			g.release(key, reservedAt)
@@ -56,7 +58,6 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 		return nil, err
 	}
 	if first != nil && pr == nil {
-		// Successful non-payment response (nothing signed, so no spend either way).
 		res, rerr := toResult(first)
 		if rerr != nil {
 			g.setLastFetchError("content_too_large", 0, false, target, rerr.Error())
@@ -65,37 +66,21 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 		return res, nil
 	}
 
-	// --- Spend + policy check ---
-	spendToday, err := g.Spend.Today()
-	if err != nil {
-		g.setLastFetchError("upstream_error", 0, false, target, err.Error())
-		return nil, err
-	}
+	// --- Static policy + seller trust (TOFU); budget is Authorize below ---
 	pol := g.CurrentPolicy()
 	var perr error
 	if overrideAmountMicro > 0 {
 		perr = pol.CheckOverride(req)
 	} else {
-		perr = pol.Check(req, spendToday)
+		perr = pol.CheckStatic(req)
 	}
-
-	// --- Seller trust (013.2, TOFU) ---
-	if serr := g.evaluateSeller(target, approveSeller, pol, req, overrideAmountMicro); serr != nil {
+	if serr := g.evaluateSeller(target, approveSeller, req); serr != nil {
 		if perr == nil {
 			perr = serr
 		}
 	}
-
-	// --- Policy error handling ---
 	if perr != nil {
 		amountMicro, _ := strconv.ParseInt(req.Amount, 10, 64)
-		if overrideAmountMicro == 0 && perr.Error() == "budget_exceeded" {
-			g.recordBlock(perr.Error(), req.Amount, target)
-			g.setLastFetchError("budget_exceeded", amountMicro, true, target, perr.Error())
-			audited = true
-			LogPayment(g.Logger, amountMicro, target, "failed:budget_exceeded", overrideAmountMicro > 0)
-			return nil, &PolicyError{Code: "budget_exceeded", AmountMicro: amountMicro, CanOverride: true}
-		}
 		g.recordBlock(perr.Error(), req.Amount, target)
 		g.setLastFetchError(perr.Error(), amountMicro, false, target, perr.Error())
 		audited = true
@@ -106,7 +91,6 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 		return nil, &PolicyError{Code: perr.Error()}
 	}
 
-	// --- Override amount check ---
 	amountMicro, amountErr := strconv.ParseInt(req.Amount, 10, 64)
 	auditAmount = amountMicro
 	if overrideAmountMicro > 0 && amountMicro > overrideAmountMicro {
@@ -114,11 +98,7 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 		return nil, &PolicyError{Code: "price_changed", AmountMicro: amountMicro, CanOverride: true}
 	}
 
-	// --- Funds pre-check (33.2) ---
-	// Advisory, not a gate: block only when the balance is KNOWN and lower than
-	// the amount. An RPC failure must not look like "no funds" — settlement
-	// stays the fail-closed gate. The balance contract is float64 USDC; the
-	// rounding here cannot matter because the real decision is the settle.
+	// --- Funds pre-check (advisory; settle is the fail-closed gate) ---
 	if g.Balance != nil && amountMicro > 0 {
 		if bal, berr := g.Balance.Fetch(g.Signer.Address()); berr == nil && int64(bal*1_000_000) < amountMicro {
 			g.setLastFetchError("insufficient_funds", amountMicro, false, target, "insufficient_funds")
@@ -127,13 +107,71 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 		}
 	}
 
-	// --- Signing and retry (extracted to fetch_sign.go) ---
-	return g.signAndRetry(ctx, method, target, body, headers, pr, req, overrideAmountMicro, key, amountMicro, amountErr)
+	// --- Atomic budget reservation (charge before sign) ---
+	token, aerr := g.authorizePayment(amountMicro, amountErr, target, pol, overrideAmountMicro, approveSeller)
+	if aerr != nil {
+		audited = true
+		return nil, aerr
+	}
+
+	return g.signAndRetry(ctx, method, target, body, headers, pr, req, overrideAmountMicro, key, amountMicro, amountErr, token)
 }
 
-// evaluateSeller checks seller trust (013.2, TOFU) and returns a PolicyError if
-// the seller is unknown or the domain cap is exceeded. Nil means OK.
-func (g *Gateway) evaluateSeller(target string, approveSeller bool, pol *policy.Policy, req *x402.PaymentRequirements, overrideAmountMicro int64) error {
+// authorizePayment reserves amountMicro against the daily cap and domain
+// sub-cap. Override skips the daily-cap ceiling (cap=∞) but still reserves;
+// approveSeller disables the domain sub-cap (explicit TOFU approval).
+func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target string, pol *policy.Policy, overrideAmountMicro int64, approveSeller bool) (string, error) {
+	if amountErr != nil || amountMicro <= 0 {
+		return "", nil
+	}
+	if g.Budget == nil {
+		g.setLastFetchError("upstream_error", amountMicro, false, target, "budget authority missing")
+		return "", fmt.Errorf("%w: budget authority missing", ErrUpstream)
+	}
+	capMicro := pol.DailyCapMicro
+	if overrideAmountMicro > 0 {
+		capMicro = math.MaxInt64
+	}
+	subcap := pol.DomainSubCapMicro()
+	domain := normSellerDomain(target)
+	if approveSeller {
+		subcap = 0
+	} else if subcap > 0 && g.Sellers != nil && domain != "" {
+		// Sellers holds sequential domain spend; Reserved covers concurrency.
+		daySpend, err := g.Sellers.Today(domain)
+		if err != nil {
+			g.setLastFetchError("upstream_error", amountMicro, false, target, err.Error())
+			return "", err
+		}
+		if daySpend < 0 {
+			daySpend = 0
+		}
+		rem := subcap - daySpend
+		if rem <= 0 {
+			g.recordBlock("budget_exceeded", strconv.FormatInt(amountMicro, 10), target)
+			g.setLastFetchError("budget_exceeded", amountMicro, true, target, "budget_exceeded")
+			LogPayment(g.Logger, amountMicro, target, "failed:budget_exceeded", overrideAmountMicro > 0)
+			return "", &PolicyError{Code: "budget_exceeded", AmountMicro: amountMicro, CanOverride: true}
+		}
+		subcap = rem
+	}
+	token, err := g.Budget.Authorize(amountMicro, capMicro, subcap, domain)
+	if err != nil {
+		if errors.Is(err, budget.ErrBudget) {
+			g.recordBlock("budget_exceeded", strconv.FormatInt(amountMicro, 10), target)
+			g.setLastFetchError("budget_exceeded", amountMicro, true, target, "budget_exceeded")
+			LogPayment(g.Logger, amountMicro, target, "failed:budget_exceeded", overrideAmountMicro > 0)
+			return "", &PolicyError{Code: "budget_exceeded", AmountMicro: amountMicro, CanOverride: true}
+		}
+		g.setLastFetchError("upstream_error", amountMicro, false, target, err.Error())
+		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
+	}
+	return token, nil
+}
+
+// evaluateSeller checks seller trust (013.2, TOFU). Domain sub-cap lives in
+// authorizePayment. Nil means OK.
+func (g *Gateway) evaluateSeller(target string, approveSeller bool, req *x402.PaymentRequirements) error {
 	if g.Sellers == nil {
 		return nil
 	}
@@ -144,8 +182,6 @@ func (g *Gateway) evaluateSeller(target string, approveSeller bool, pol *policy.
 	}
 	if approveSeller {
 		if err := g.Sellers.Land(domain); err != nil && g.Logger != nil {
-			// deliberate: the payment itself is user-approved, so a persist
-			// failure only warns — the next payment will ask again (fail-closed).
 			g.Logger.Warn("sellers land", "domain", domain, "err", err)
 		}
 		return nil
@@ -159,16 +195,6 @@ func (g *Gateway) evaluateSeller(target string, approveSeller bool, pol *policy.
 	if !known {
 		g.setLastFetchError("unknown_seller", amountMicro, true, target, "unknown_seller")
 		return &PolicyError{Code: "unknown_seller", AmountMicro: amountMicro, CanOverride: true}
-	}
-	daySpend, err := g.Sellers.Today(domain)
-	if err != nil {
-		g.setLastFetchError("upstream_error", 0, false, target, err.Error())
-		return err
-	}
-	subCap := pol.DomainSubCapMicro()
-	if subCap > 0 && (daySpend < 0 || amountMicro > subCap-daySpend) {
-		g.setLastFetchError("domain_cap_exceeded", amountMicro, true, target, "domain_cap_exceeded")
-		return &PolicyError{Code: "domain_cap_exceeded", AmountMicro: amountMicro, CanOverride: true}
 	}
 	return nil
 }

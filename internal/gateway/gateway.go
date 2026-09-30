@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/policy"
 	"gateway/internal/spend"
@@ -72,6 +73,7 @@ type Gateway struct {
 	Client *cdp.Client
 	Signer Signer
 	Spend  *spend.Tracker
+	Budget *budget.Authority
 	Paused atomic.Bool
 	HTTP   *http.Client
 
@@ -170,7 +172,12 @@ func (g *Gateway) recordBlock(reason, amount, target string) {
 	}
 	g.Blocks.Record(rec)
 	if reason == "budget_exceeded" {
-		spend, _ := g.Spend.Today()
+		var spend int64
+		if g.Budget != nil {
+			spend, _ = g.Budget.Today()
+		} else if g.Spend != nil {
+			spend, _ = g.Spend.Today()
+		}
 		cap := g.CurrentPolicy().DailyCapMicro
 		body := budgetExhaustedBody(spend, cap)
 		// Reserve the day's slot before notifying: under a retry burst the

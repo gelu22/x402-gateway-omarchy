@@ -18,7 +18,14 @@ func (p *Policy) DomainSubCapMicro() int64 {
 	return int64(float64(p.DailyCapMicro) * float64(p.DomainSubCapPercent) / 100)
 }
 
+// CheckStatic validates requirements against policy WITHOUT the daily budget
+// (the budget is enforced atomically by internal/budget.Authorize).
+func (p *Policy) CheckStatic(req *x402.PaymentRequirements) error {
+	return p.check(req, 0, true)
+}
+
 // Check validates requirements against policy and single daily budget.
+// Deprecated: use CheckStatic + budget.Authorize (42.1).
 func (p *Policy) Check(req *x402.PaymentRequirements, spendMicro int64) error {
 	return p.check(req, spendMicro, false)
 }

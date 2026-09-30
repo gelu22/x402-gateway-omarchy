@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.13] — 2026-09-30
+
+### Security
+
+- **Atomic budget authority** (`internal/budget`): `Authorize` / `Commit` /
+  `Release` in one mutex+persist transaction. Daily cap and per-domain sub-cap
+  are reserved atomically — concurrent requests can no longer each pass against
+  the same remaining budget. Charge happens **before** signing; a write failure
+  means no authorization (fail-closed). Crash leaves the amount reserved until
+  TTL (budget gets tighter, never looser). `OnPayment` no longer calls
+  `Spend.Add` (telemetry/cache only).
+- **Lifecycle mutations in Go** (`internal/install`): installs/removes use
+  `Openat(O_NOFOLLOW)` + `Renameat` / `Unlinkat`. Bash is a thin verified
+  downloader that delegates to `gateway install` / `gateway self-remove`.
+- **Trust-anchor layers**: `resolve_tool` + `type -P` reject PATH functions/
+  aliases for `curl`/`gh`; attestation + sha256 both required (unless a
+  documented opt-out). `SECURITY.md` states the PATH trust boundary; ADR-001 D11
+  records the future out-of-band anchor.
+- **Security-class gate**: `scripts/check-security-classes.sh` in preflight plus
+  required `knowledge/reviews/<promptId>.md` for money/lifecycle/session changes.
+
+### Added
+
+- README section **Supported payment rail** and ADR-001 **D10** (EIP-3009 on
+  Base; non-goal non-EVM).
+
 ## [0.1.12] — 2026-09-29
 
 ### Security

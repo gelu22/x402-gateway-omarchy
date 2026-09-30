@@ -341,7 +341,7 @@ func TestFetchRefusesPrivateTargetBeforeSigning(t *testing.T) {
 	if got := signer.signCalls.Load(); got != 0 {
 		t.Fatalf("signCalls = %d, want 0 (must refuse before signing)", got)
 	}
-	if spent, _ := gw.Spend.Today(); spent != 0 {
+	if spent, _ := gw.Budget.Today(); spent != 0 {
 		t.Fatalf("spend = %d, want 0 (nothing settled)", spent)
 	}
 }

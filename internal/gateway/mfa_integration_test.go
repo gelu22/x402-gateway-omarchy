@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/policy"
 	"gateway/internal/session"
@@ -110,8 +111,10 @@ func mfaGateway(t *testing.T, f *mfaFakeCDP, store *session.Store) (*Gateway, *a
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir := t.TempDir()
 	gw := &Gateway{
-		Spend:        spend.NewTracker(t.TempDir()),
+		Spend:        spend.NewTracker(dir),
+		Budget:       budget.NewAuthority(dir, nil),
 		Signer:       mgr,
 		AllowPrivate: true,
 		Blocks:       NewBlockTracker(t.TempDir(), nil),

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/policy"
 	"gateway/internal/spend"
@@ -45,8 +46,10 @@ func newSettleGateway(t *testing.T) (*Gateway, *atomic.Int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dir := t.TempDir()
 	gw := &Gateway{
-		Spend:        spend.NewTracker(t.TempDir()),
+		Spend:        spend.NewTracker(dir),
+		Budget:       budget.NewAuthority(dir, nil),
 		Signer:       &settleSigner{ws: cdp.NewWalletSecret("test-secret", time.Time{}, nil, key)},
 		AllowPrivate: true,
 		Blocks:       NewBlockTracker(t.TempDir(), nil),
@@ -68,9 +71,7 @@ func newSettleGateway(t *testing.T) (*Gateway, *atomic.Int32) {
 	// test proves they run only on settle, not that Spend works in isolation.
 	gw.OnPayment = func(amountMicro int64, domain string) {
 		payments.Add(1)
-		if err := gw.Spend.Add(amountMicro); err != nil {
-			t.Errorf("spend add: %v", err)
-		}
+		// Budget.Commit runs before OnPayment; hook is telemetry/cache only.
 	}
 	return gw, &payments
 }
@@ -92,10 +93,13 @@ func sellerWith(t *testing.T, retryStatus int) *httptest.Server {
 	return srv
 }
 
-// spendToday reads the single daily spend counter; shared by the suite.
+// spendToday reads the daily budget total (spent+reserved); shared by the suite.
 func spendToday(t *testing.T, gw *Gateway) int64 {
 	t.Helper()
-	spent, err := gw.Spend.Today()
+	if gw.Budget == nil {
+		t.Fatal("Budget not wired")
+	}
+	spent, err := gw.Budget.Today()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +250,7 @@ func TestSignRefusesWithoutAccountedAmount(t *testing.T) {
 	gw, payments := newSettleGateway(t)
 	_, err := gw.signAndRetry(context.Background(), http.MethodGet,
 		"https://seller.example/x", nil, nil, nil, nil, 0,
-		"GET https://seller.example/x", 10_000, errors.New("bad amount"))
+		"GET https://seller.example/x", 10_000, errors.New("bad amount"), "")
 	if !errors.Is(err, ErrSigner) {
 		t.Fatalf("err = %v, want ErrSigner", err)
 	}

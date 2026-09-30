@@ -46,7 +46,10 @@ func assertSigns(t *testing.T, gw *Gateway, want int32) {
 
 func assertNoSpend(t *testing.T, gw *Gateway) {
 	t.Helper()
-	spent, err := gw.Spend.Today()
+	if gw.Budget == nil {
+		t.Fatal("Budget not wired")
+	}
+	spent, err := gw.Budget.Today()
 	if err != nil {
 		t.Fatal(err)
 	}

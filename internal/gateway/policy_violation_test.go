@@ -40,7 +40,7 @@ func TestPolicyViolationIsSurfacedAndSettlesNothing(t *testing.T) {
 	if payments.Load() != 0 {
 		t.Fatal("nothing may settle when the policy engine refuses")
 	}
-	if s, _ := gw.Spend.Today(); s != 0 {
+	if s, _ := gw.Budget.Today(); s != 0 {
 		t.Fatalf("spend = %d, want 0", s)
 	}
 	if gw.lastFetchError == nil || gw.lastFetchError.Code != "policy_violation" {

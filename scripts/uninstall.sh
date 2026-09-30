@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
 # uninstall.sh — x402 Gateway deinstaller.
-#
-# Modes:
-#   (interactive)  asks: remove EVERYTHING without further questions, or step by
-#                  step (pick groups). Reads from /dev/tty, so it also works
-#                  when the script is downloaded and run directly.
-#   --yes          remove everything, no questions (scripts, CI)
-#
-# Groups: agents (MCP entries), program (processes+binary+plugin+helper+shell),
-# data (state dir with session/audit log + plugin config).
-#
-# Safety: without --yes and without a terminal it refuses and changes nothing.
-# It never touches ~/.local/state/omarchy/notifications (shared with other apps).
+# Modes: interactive (asks) or --yes (full wipe). Program/data mutations go
+# through `gateway self-remove` (42.3); bash keeps lock, stop, and agent helper.
 set -euo pipefail
 
 REPO="${X402_REPO:-gelu22/x402-gateway-omarchy}"
@@ -22,23 +12,8 @@ SHARE_DIR="${HOME}/.local/share/x402-gateway"
 PLUGIN_DIR="${HOME}/.config/omarchy/plugins/gelu22.gateway"
 CONFIG_DIR="${HOME}/.config/omarchy/x402-gateway"
 AGENTS="opencode,claude-code,cursor,codex,gemini"
-PLUGIN_ID="gelu22.gateway"
-REGISTRY="$STATE_DIR/installed.sha256"
 
 say() { printf '%s\n' "$*"; }
-
-is_ours() {  # $1=path: true iff it is a regular file whose sha matches the recording
-  local want
-  [ -f "$1" ] && [ ! -L "$1" ] && [ -f "$REGISTRY" ] || return 1
-  want="$(awk -v p="$1" 'substr($0,67)==p {print $1}' "$REGISTRY" | tail -1)"
-  [ -n "$want" ] || return 1
-  [ "$(sha256sum "$1" | awk '{print $1}')" = "$want" ]
-}
-
-plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
-  [ -f "$1/manifest.json" ] || return 0
-  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
-}
 
 lock_state() {
   mkdir -p "$STATE_DIR"
@@ -49,7 +24,7 @@ lock_state() {
   fi
 }
 
-daemon_pids() {  # pids whose /proc/<pid>/exe is our gateway (not a cmdline regex)
+daemon_pids() {
   local p pid
   for p in /proc/[0-9]*/exe; do
     pid="${p#/proc/}"; pid="${pid%/exe}"
@@ -70,81 +45,50 @@ purge_agents() {
     say "  – no ${helper} (skipping MCP entries)"
     return 0
   fi
-  if ! is_ours "$helper"; then
-    say "  ⚠ ${helper} is not the helper this installer placed (skipping MCP entries)"
-    return 0
-  fi
   "$helper" --remove "$AGENTS" || say "  ! setup-agents --remove failed (check .bak-* backups)"
 }
 
 purge_program() {
-  if [ -d "$PLUGIN_DIR" ] && [ "$(plugin_id_at "$PLUGIN_DIR")" = "$PLUGIN_ID" ]; then
-    rm -rf "$PLUGIN_DIR"
-  elif [ -e "$PLUGIN_DIR" ]; then
-    say "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
-  fi
-
-  # Stop the daemon only when the binary at the fixed path is ours.
-  if is_ours "$GATEWAY_BIN"; then
+  stop_daemon
+  if command -v omarchy >/dev/null 2>&1; then
+    say "  → restarting the shell (unloads the plugin that respawns the daemon)"
+    omarchy restart shell >/dev/null 2>&1 || true
     stop_daemon
-    if command -v omarchy >/dev/null 2>&1; then
-      say "  → restarting the shell (unloads the plugin that respawns the daemon)"
-      omarchy restart shell >/dev/null 2>&1 || true
-      stop_daemon
-    fi
-    rm -f "$GATEWAY_BIN"
-  elif [ -e "$GATEWAY_BIN" ]; then
-    say "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
   fi
-
-  # Shared dir: remove only the files we own; never wipe the whole directory.
-  for f in setup-agents.sh remember-override.sh; do
-    local p="$SHARE_DIR/$f"
-    if [ ! -e "$p" ]; then continue
-    elif is_ours "$p"; then rm -f "$p"
-    else say "  ⚠ keeping $p (not ours)"; fi
-  done
-  rmdir "$SHARE_DIR" 2>/dev/null || true # only if it is now empty
+  if [ -x "$GATEWAY_BIN" ]; then
+    "$GATEWAY_BIN" self-remove --home "$HOME" --keep-state --keep-config || true
+  else
+    say "  ⚠ no installed gateway binary — skipping program remove"
+  fi
 }
 
-purge_data() { rm -rf "$STATE_DIR" "$CONFIG_DIR"; }
+purge_data() {
+  if [ -x "$GATEWAY_BIN" ]; then
+    "$GATEWAY_BIN" self-remove --home "$HOME" || true
+  fi
+  rm -rf "$STATE_DIR" "$CONFIG_DIR"
+}
 
 leftovers() {
-  local out=""
-  [ -e "$GATEWAY_BIN" ] && out="${out} ${GATEWAY_BIN}"
-  [ -e "$PLUGIN_DIR" ] && out="${out} ${PLUGIN_DIR}"
-  [ -e "$SHARE_DIR" ] && out="${out} ${SHARE_DIR}"
-  [ -e "$STATE_DIR" ] && out="${out} ${STATE_DIR}"
-  [ -e "$CONFIG_DIR" ] && out="${out} ${CONFIG_DIR}"
-  [ -n "$(daemon_pids)" ] && out="${out} [process]"
-  printf '%s' "$out"
-}
-
-note_cdp() {
-  [ -e "$STATE_DIR" ] && return 0
-  say "Note: the wallet and session stay in the CDP project; remove them in the"
-  say "CDP portal if you want a full cleanup."
+  local left=""
+  [ -e "$GATEWAY_BIN" ] && left="$left $GATEWAY_BIN"
+  [ -e "$PLUGIN_DIR" ] && left="$left $PLUGIN_DIR"
+  [ -e "$SHARE_DIR" ] && left="$left $SHARE_DIR"
+  [ -e "$STATE_DIR" ] && left="$left $STATE_DIR"
+  [ -e "$CONFIG_DIR" ] && left="$left $CONFIG_DIR"
+  [ -n "$(daemon_pids)" ] && left="$left [process]"
+  printf '%s' "$left"
 }
 
 verify_zero() {
   local left
   left="$(leftovers)"
   if [ -n "$left" ]; then
-    say "LEFTOVER:${left}"
-    say "  remove manually, or report: https://github.com/${REPO}/issues"
-    return 1
+    say "LEFTOVER:$left"
+    say "  remove manually, or report: https://github.com/$REPO/issues" >&2
+    exit 1
   fi
   say "0 leftovers — the gateway is gone."
-  note_cdp
-}
-
-# Selective runs keep what the user unchecked: leftovers are the choice, not a
-# failure (only a full purge must end at zero).
-report_kept() {
-  local left
-  left="$(leftovers)"
-  if [ -n "$left" ]; then say "Kept (as selected):${left}"; else say "0 leftovers — the gateway is gone."; fi
-  note_cdp
 }
 
 do_all() {
@@ -193,7 +137,9 @@ interactive() {
   if [ "$agents" = 1 ]; then purge_agents; fi
   if [ "$program" = 1 ]; then purge_program; fi
   if [ "$data" = 1 ]; then purge_data; fi
-  report_kept
+  local left
+  left="$(leftovers)"
+  if [ -n "$left" ]; then say "Kept (as selected):${left}"; else say "0 leftovers — the gateway is gone."; fi
 }
 
 usage() { say "usage: uninstall.sh [--yes]"; }
@@ -201,8 +147,6 @@ usage() { say "usage: uninstall.sh [--yes]"; }
 case "${1:-}" in
   --yes) do_all ;;
   "")
-    # Opening /dev/tty is the real test: a session without a controlling
-    # terminal has the device node but cannot open it (setsid, CI, cron).
     if [ -r /dev/tty ] && exec 3<>/dev/tty 2>/dev/null; then
       interactive
     else

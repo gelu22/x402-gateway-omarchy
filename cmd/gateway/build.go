@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/config"
 	"gateway/internal/gateway"
@@ -26,6 +27,7 @@ func buildGateway(cfg *config.Config, logger *slog.Logger) (*gateway.Gateway, *s
 		PolicyPath:   filepath.Join(cfg.StateDir, "policy.json"),
 		AllowPrivate: os.Getenv("GATEWAY_ALLOW_PRIVATE") == "1",
 		Spend:        spend.NewTracker(cfg.StateDir),
+		Budget:       budget.NewAuthority(cfg.StateDir, nil),
 		Logger:       logger,
 		Sellers:      gateway.NewSellerRegistry(cfg.StateDir),
 	}
@@ -64,11 +66,9 @@ func buildGateway(cfg *config.Config, logger *slog.Logger) (*gateway.Gateway, *s
 	if cfg.CDPBaseURL != "" {
 		gw.Client.BaseURL = cfg.CDPBaseURL
 	}
-	// OnPayment: record spend locally + invalidate balance cache + enqueue telemetry.
+	// OnPayment: domain spend + balance cache + telemetry. Daily budget is
+	// committed by fetch_sign before this hook (no Spend.Add).
 	gw.OnPayment = func(amountMicro int64, domain string) {
-		if err := gw.Spend.Add(amountMicro); err != nil {
-			logger.Warn("spend record", "err", err)
-		}
 		if gw.Sellers != nil {
 			if err := gw.Sellers.Add(domain, amountMicro); err != nil {
 				logger.Warn("sellers record", "err", err)

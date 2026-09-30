@@ -50,7 +50,7 @@ func TestMfaRequiredBlocksAndRetriesAfterVerify(t *testing.T) {
 	if payments.Load() != 0 {
 		t.Fatal("no payment must settle while MFA is missing")
 	}
-	if s, _ := gw.Spend.Today(); s != 0 {
+	if s, _ := gw.Budget.Today(); s != 0 {
 		t.Fatalf("spend = %d, want 0", s)
 	}
 	if gw.lastFetchError == nil || gw.lastFetchError.Code != "mfa_required" {

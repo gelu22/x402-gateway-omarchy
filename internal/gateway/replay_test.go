@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/policy"
 	"gateway/internal/spend"
@@ -32,7 +33,7 @@ func newGateway(t *testing.T, daily, perReq int64) (*Gateway, *recordingSigner) 
 	dir := t.TempDir()
 	p := policy.Default()
 	p.DailyCapMicro = daily
-	gw := &Gateway{Spend: spend.NewTracker(dir), Signer: &recordingSigner{}, AllowPrivate: true}
+	gw := &Gateway{Spend: spend.NewTracker(dir), Budget: budget.NewAuthority(dir, nil), Signer: &recordingSigner{}, AllowPrivate: true}
 	gw.SetPolicy(p)
 	return gw, gw.Signer.(*recordingSigner)
 }
@@ -139,7 +140,8 @@ func TestConcurrentIdenticalFetchesPayOnce(t *testing.T) {
 func TestConcurrentIdenticalNeverReportsBudgetExceeded(t *testing.T) {
 	gw, payments := newSettleGateway(t)
 	p := policy.Default()
-	p.DailyCapMicro = 10_000 // exactly one 10000-micro payment
+	p.DailyCapMicro = 10_000  // exactly one 10000-micro payment
+	p.DomainSubCapPercent = 0 // identical URL → same host; isolate daily-cap
 	gw.SetPolicy(p)
 	url := sellerWith(t, http.StatusOK).URL + "/content"
 

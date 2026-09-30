@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/gateway"
 	"gateway/internal/policy"
@@ -67,6 +68,7 @@ func newTestGateway(t *testing.T) *gateway.Gateway {
 	}
 	gw := &gateway.Gateway{
 		Spend:        spend.NewTracker(dir),
+		Budget:       budget.NewAuthority(dir, nil),
 		Signer:       &testSigner{},
 		AllowPrivate: true,
 		// The /policy POST handler saves next to PolicyPath; without it the

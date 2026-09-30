@@ -42,7 +42,7 @@ func TestOverrideInsufficientFundsIsNotOverridable(t *testing.T) {
 	if payments.Load() != 0 {
 		t.Fatalf("payments = %d, want 0", payments.Load())
 	}
-	if s, _ := gw.Spend.Today(); s != 0 {
+	if s, _ := gw.Budget.Today(); s != 0 {
 		t.Fatalf("spend = %d, want 0", s)
 	}
 	if gw.lastError() == nil || gw.lastError().Code != "insufficient_funds" {
@@ -65,7 +65,7 @@ func TestOverrideWithExactBalanceSettles(t *testing.T) {
 	}
 }
 
-// Gap (b): the real order is budget -> TOFU -> sub-cap (fetch.go evaluateSeller),
+// Gap (b): the real order is TOFU -> Authorize (daily+sub-cap),
 // so an UNKNOWN seller over the sub-cap gets unknown_seller first; the sub-cap
 // binds from the next payment (and an explicit approval lands + pays, which is
 // the documented fail-closed rule, pinned by TestOverrideBypassesDomainSubCap).
@@ -95,7 +95,7 @@ func TestTOFUPrecedesSubCapForUnknownSeller(t *testing.T) {
 	}
 	_, err = gw.Fetch(context.Background(), http.MethodGet, url, nil, nil)
 	perr, code := policyErrCode(t, err)
-	if code != "domain_cap_exceeded" || !perr.CanOverride {
+	if code != "budget_exceeded" || !perr.CanOverride {
 		t.Fatalf("known seller over the sub-cap: code=%s canOverride=%v", code, perr.CanOverride)
 	}
 	if payments.Load() != 0 {
@@ -161,7 +161,7 @@ func TestPolicyViolationOnOverrideIsNotOverridable(t *testing.T) {
 	if payments.Load() != 0 {
 		t.Fatalf("payments = %d, want 0", payments.Load())
 	}
-	if s, _ := gw.Spend.Today(); s != 0 {
+	if s, _ := gw.Budget.Today(); s != 0 {
 		t.Fatalf("spend = %d, want 0", s)
 	}
 }

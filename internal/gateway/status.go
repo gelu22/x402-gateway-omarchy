@@ -36,7 +36,13 @@ type FetchErrorInfo struct {
 
 // Status assembles the current snapshot from policy, spend and signer.
 func (g *Gateway) Status(version string) (*Status, error) {
-	spend, err := g.Spend.Today()
+	var spend int64
+	var err error
+	if g.Budget != nil {
+		spend, err = g.Budget.Today()
+	} else if g.Spend != nil {
+		spend, err = g.Spend.Today()
+	}
 	if err != nil {
 		return nil, err
 	}

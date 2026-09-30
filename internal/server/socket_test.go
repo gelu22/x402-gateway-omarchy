@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/cdp"
 	"gateway/internal/gateway"
 	"gateway/internal/policy"
@@ -83,6 +84,7 @@ func newGateway(t *testing.T, daily, perReq int64) (*gateway.Gateway, *recording
 	signer := &recordingSigner{}
 	gw := &gateway.Gateway{
 		Spend:        spend.NewTracker(dir),
+		Budget:       budget.NewAuthority(dir, nil),
 		Signer:       signer,
 		AllowPrivate: true, // httptest binds 127.0.0.1; production leaves false
 	}
@@ -137,7 +139,11 @@ func TestFetchOverBudgetDenialBeforeSign(t *testing.T) {
 
 func TestFetchBudgetExceeded(t *testing.T) {
 	gw, signer := newGateway(t, 100_000 /* $0.10 daily */, 50_000 /* $0.05 per req */)
-	if err := gw.Spend.Add(90_000); err != nil { // already spent $0.09 today
+	tok, err := gw.Budget.Authorize(90_000, 100_000, 0, "seed") // already spent $0.09 today
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Budget.Commit(tok); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +153,7 @@ func TestFetchBudgetExceeded(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	_, err := gw.Fetch(context.Background(), http.MethodGet, upstream.URL+"/content", nil, nil)
+	_, err = gw.Fetch(context.Background(), http.MethodGet, upstream.URL+"/content", nil, nil)
 	var perr *gateway.PolicyError
 	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
 		t.Fatalf("want budget_exceeded, got %v", err)

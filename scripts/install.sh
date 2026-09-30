@@ -1,23 +1,8 @@
 #!/usr/bin/env bash
-# Gateway installer: downloads the latest (or given) release (binary +
-# plugin bundle), verifies sha256 AND requires a valid sigstore provenance
-# attestation (fail-closed), installs binary to ~/.local/bin, QML
-# plugin to ~/.config/omarchy/plugins/gelu22.gateway (Omarchy only),
-# helper script to ~/.local/share/x402-gateway, seeds the plugin config at
-# ~/.config/omarchy/x402-gateway/config.json (only when absent), state dir 0700.
-# Usage:
-#   install.sh              # latest release
-#   install.sh v0.1.0       # specific version
-#   install.sh verify       # only verify an existing installation
-#   install.sh remove       # uninstall (keeps state dir AND user config)
-#   install.sh purge [--yes] # full uninstall via scripts/uninstall.sh
-#                            # (interactive without --yes; wipes state+config)
-# Env:
-#   GATEWAY_RELEASE_BASE        override release download base URL
-#                               (default: https://github.com/$REPO/releases/download/$VERSION;
-#                                e.g. file:///tmp/fakerelease for offline tests)
-#   GATEWAY_ALLOW_UNVERIFIED=1  deliberately skip the signature check (sha256
-#                               only; for offline/dev — not recommended)
+# Gateway installer: download+verify release, then `gateway install` (Go) mutates
+# the filesystem (42.3). Bash never writes under ~/.local/bin or the plugin dir.
+# Usage: install.sh [vX.Y.Z|verify|remove|purge [--yes]]
+# Env: GATEWAY_RELEASE_BASE, GATEWAY_ALLOW_UNVERIFIED=1, GATEWAY_FORCE=1
 set -euo pipefail
 
 REPO="gelu22/x402-gateway-omarchy"
@@ -32,73 +17,28 @@ AGENTS="opencode,claude-code,cursor,codex,gemini"
 GATEWAY_BIN="${BIN_DIR}/gateway"
 ARCH="$(uname -m)"; case "$ARCH" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) echo "unsupported arch $ARCH"; exit 1;; esac
 
-# -- installed-file registry (safety) ----------------------------------------
-# $STATE_DIR/installed.sha256 records what THIS installer put on disk, so an
-# install/update/remove never overwrites or deletes a path it did not create.
-REGISTRY="$STATE_DIR/installed.sha256"
-
-is_ours() {  # $1=path: true iff it is a regular file whose sha matches the recording
-  local want
-  [ -f "$1" ] && [ ! -L "$1" ] && [ -f "$REGISTRY" ] || return 1
-  # sha256sum prints "HASH<space><space>PATH" (64 hex + 2 = path at col 67);
-  # splitting on whitespace breaks paths that contain spaces ($HOME with a space).
-  want="$(awk -v p="$1" 'substr($0,67)==p {print $1}' "$REGISTRY" | tail -1)"
-  [ -n "$want" ] || return 1
-  [ "$(sha256sum "$1" | awk '{print $1}')" = "$want" ]
-}
-
-registry_set() {  # $1=path: record/refresh its sha
-  [ -f "$1" ] || return 0
-  local dir tmp
-  dir="$(dirname "$REGISTRY")"; mkdir -p "$dir"
-  tmp="$(mktemp "$dir/.reg.XXXXXX")"
-  if [ -f "$REGISTRY" ]; then
-    awk -v p="$1" 'substr($0,67)!=p' "$REGISTRY" > "$tmp"
+# Resolve an external tool to an absolute path. Rejects shell functions/aliases
+# (type -P only returns executables). PATH control by an attacker is still RCE
+# (SECURITY.md); this only removes the cheapest spoof.
+resolve_tool() {
+  local name="$1" path
+  path="$(type -P "$name" 2>/dev/null || true)"
+  if [ -z "$path" ] || [ ! -x "$path" ]; then
+    echo "  ✗ required tool '$name' not found as an executable on PATH" >&2
+    return 1
   fi
-  sha256sum "$1" >> "$tmp"
-  mv "$tmp" "$REGISTRY"
-}
-
-no_symlink() {  # $1=path: refuse a symlinked target (writes would follow it out)
-  if [ -L "$1" ]; then
-    echo "  ✗ $1 is a symlink — refusing to write through it." >&2
-    exit 1
+  # Prefer canonical path when available.
+  if command -v realpath >/dev/null 2>&1; then
+    path="$(realpath "$path")"
   fi
+  printf '%s\n' "$path"
 }
 
-# Single-instance guard: two concurrent installs/removals must not interleave.
-lock_state() {
-  mkdir -p "$STATE_DIR"
-  exec 9>"$STATE_DIR/.lock"
-  if ! flock -n 9; then
-    echo "  ✗ another install/remove/purge is already running." >&2
-    exit 1
-  fi
+fetch() {
+  local curl_bin
+  curl_bin="$(resolve_tool curl)" || exit 1
+  "$curl_bin" -fsSL -m 60 "$@"
 }
-
-# The daemon's pid(s), matched by the /proc/<pid>/exe target (not a `pkill -f`
-# regex over the command line, which also matches unrelated processes).
-daemon_pids() {
-  local p pid
-  for p in /proc/[0-9]*/exe; do
-    pid="${p#/proc/}"; pid="${pid%/exe}"
-    [ "$(readlink "$p" 2>/dev/null)" = "$GATEWAY_BIN" ] && printf '%s\n' "$pid"
-  done
-}
-
-stop_daemon() {
-  local pid
-  for pid in $(daemon_pids); do kill -TERM "$pid" 2>/dev/null || true; done
-  sleep 1
-  for pid in $(daemon_pids); do kill -KILL "$pid" 2>/dev/null || true; done
-}
-
-plugin_id_at() {  # $1=plugin dir: prints the manifest id, or ""
-  [ -f "$1/manifest.json" ] || return 0
-  sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/manifest.json" | head -1
-}
-
-fetch() { curl -fsSL -m 60 "$@"; }
 
 check_file() {  # $1=dir/file $2=expected-sha
   local actual
@@ -147,7 +87,8 @@ verify_provenance() {  # $1=file
     echo "  ⚠ WARNING: attestation DISABLED (GATEWAY_ALLOW_UNVERIFIED=1) — sha256 only, no signature check"
     return 0
   fi
-  if ! command -v gh >/dev/null 2>&1; then
+  local gh_bin
+  if ! gh_bin="$(resolve_tool gh)"; then
     echo "  ✗ 'gh' is required to verify the release signature." >&2
     echo "    Install GitHub CLI (https://cli.github.com), or re-run with" >&2
     echo "    GATEWAY_ALLOW_UNVERIFIED=1 to install sha256-only (not recommended)." >&2
@@ -155,7 +96,7 @@ verify_provenance() {  # $1=file
   fi
   # Pin the signer workflow and the tag, so any other workflow that can mint an
   # attestation in the repo is not accepted.
-  if out=$(gh attestation verify "$file" --repo "$REPO" \
+  if out=$("$gh_bin" attestation verify "$file" --repo "$REPO" \
       --signer-workflow "$REPO/.github/workflows/release.yml" \
       --source-ref "refs/tags/$RELEASE_VERSION" 2>&1); then
     echo "  ✓ attestation OK: $(basename "$file")"
@@ -166,100 +107,57 @@ verify_provenance() {  # $1=file
   exit 1
 }
 
-install_binary() {  # $1=tmpdir
-  no_symlink "$STATE_DIR"; no_symlink "$GATEWAY_BIN"
-  if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
-    echo "  ✗ $GATEWAY_BIN already exists and was not installed by this installer." >&2
-    echo "    Move it away first, or re-run with GATEWAY_FORCE=1 to overwrite." >&2
-    [ "${GATEWAY_FORCE:-}" = "1" ] || exit 1
-  fi
-  mkdir -p "$BIN_DIR" "$STATE_DIR" && chmod 700 "$STATE_DIR"
-  install -m 755 "$1/gateway" "$GATEWAY_BIN"
-  registry_set "$GATEWAY_BIN"
-  echo "✓ installed $GATEWAY_BIN"
-  echo "  state dir: $STATE_DIR"
-}
-
-install_scripts() {  # $1=extracted bundle dir
-  no_symlink "$SHARE_DIR"; no_symlink "$SHARE_DIR/setup-agents.sh"
-  if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
-    echo "  ✗ $SHARE_DIR/setup-agents.sh already exists and was not installed by this installer." >&2
-    echo "    Move it away first, or re-run with GATEWAY_FORCE=1 to overwrite." >&2
-    [ "${GATEWAY_FORCE:-}" = "1" ] || exit 1
-  fi
-  mkdir -p "$SHARE_DIR"
-  install -m 755 "$1/scripts/setup-agents.sh" "$SHARE_DIR/"
-  registry_set "$SHARE_DIR/setup-agents.sh"
-  # Retired file (009.7): remove it only when it is ours.
-  if [ -e "$SHARE_DIR/remember-override.sh" ] && ! is_ours "$SHARE_DIR/remember-override.sh"; then
-    echo "  ⚠ keeping $SHARE_DIR/remember-override.sh (not ours)"
-  else
-    rm -f "$SHARE_DIR/remember-override.sh"
-  fi
-  echo "✓ installed helper script to $SHARE_DIR"
-}
-
-install_plugin() {  # $1=extracted bundle dir
-  if [ ! -d "${HOME}/.config/omarchy" ]; then
-    echo "  ⚠ no ~/.config/omarchy — skipping QML plugin (manual: copy plugin/omarchy/ to ~/.config/omarchy/plugins/$PLUGIN_ID)"
-    return 0
-  fi
-  if [ -e "$PLUGIN_DIR" ] && [ ! -d "$PLUGIN_DIR" ] && [ ! -L "$PLUGIN_DIR" ]; then
-    echo "  ✗ $PLUGIN_DIR exists and is not a directory — refusing." >&2
+# -- lifecycle mutations live in Go (42.3): bash only downloads + verifies -----
+lock_state() {
+  mkdir -p "$STATE_DIR"
+  exec 9>"$STATE_DIR/.lock"
+  if ! flock -n 9; then
+    echo "  ✗ another install/remove/purge is already running." >&2
     exit 1
   fi
-  no_symlink "$PLUGIN_DIR"
-  existing_id="$(plugin_id_at "$PLUGIN_DIR")"
-  if [ -n "$existing_id" ] && [ "$existing_id" != "$PLUGIN_ID" ]; then
-    echo "  ✗ $PLUGIN_DIR holds plugin '$existing_id' — refusing to overwrite." >&2
-    exit 1
-  fi
-  mkdir -p "$PLUGIN_DIR"
-  cp "$1/plugin/omarchy/"*.qml "$1/plugin/omarchy/"*.js "$1/plugin/omarchy/manifest.json" "$PLUGIN_DIR/"
-  # Release stamp (41.3): shipped in the bundle; absent in older bundles.
-  if [ -f "$1/plugin/omarchy/build-info.json" ]; then
-    cp "$1/plugin/omarchy/build-info.json" "$PLUGIN_DIR/"
-  fi
-  if command -v omarchy >/dev/null 2>&1; then
-    if omarchy plugin validate "$PLUGIN_DIR"; then
-      echo "✓ plugin validated"
-    else
-      echo "  ✗ plugin validation failed — refusing to install a broken plugin." >&2
-      exit 1
-    fi
-  else
-    echo "  ⚠ omarchy CLI not found — skipping plugin validation"
-  fi
-  echo "✓ installed QML plugin to $PLUGIN_DIR"
 }
 
-install_config() {  # $1=extracted bundle dir; seeds template only when absent
-  if [ ! -d "${HOME}/.config/omarchy" ]; then
-    echo "  ⚠ no ~/.config/omarchy — skipping plugin config seed"
-    return 0
-  fi
-  mkdir -p "$CONFIG_DIR" && chmod 700 "$CONFIG_DIR"
-  if [ -f "$CONFIG_FILE" ]; then
-    echo "✓ plugin config kept (already exists): $CONFIG_FILE"
-  elif [ -f "$1/config/gateway-config.json" ]; then
-    install -m 600 "$1/config/gateway-config.json" "$CONFIG_FILE"
-    echo "✓ seeded plugin config: $CONFIG_FILE"
+daemon_pids() {
+  local p pid
+  for p in /proc/[0-9]*/exe; do
+    pid="${p#/proc/}"; pid="${pid%/exe}"
+    [ "$(readlink "$p" 2>/dev/null)" = "$GATEWAY_BIN" ] && printf '%s\n' "$pid"
+  done
+}
+
+stop_daemon() {
+  local pid
+  for pid in $(daemon_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+  sleep 1
+  for pid in $(daemon_pids); do kill -KILL "$pid" 2>/dev/null || true; done
+}
+
+run_gateway_install() {  # $1=tmpdir with gateway + extracted bundle/
+  local tmp="$1" force=()
+  [ "${GATEWAY_FORCE:-}" = "1" ] && force=(--force)
+  chmod +x "$tmp/gateway"
+  "$tmp/gateway" install --bundle "$tmp/bundle" --home "$HOME" --binary "$tmp/gateway" "${force[@]}"
+}
+
+run_self_remove() {  # $1=keep_state $2=keep_config
+  local keep_state="$1" keep_config="$2" args=()
+  [ "$keep_state" = 1 ] && args+=(--keep-state)
+  [ "$keep_config" = 1 ] && args+=(--keep-config)
+  [ "${GATEWAY_FORCE:-}" = "1" ] && args+=(--force)
+  if [ -x "$GATEWAY_BIN" ]; then
+    "$GATEWAY_BIN" self-remove --home "$HOME" "${args[@]}"
   else
-    echo "  ⚠ bundle has no config template — skipping seed"
+    echo "  ⚠ no installed gateway binary — nothing to remove" >&2
   fi
 }
 
-do_install() {  # $1=version tag (TMP intentionally global: EXIT trap)
+do_install() {
   local VERSION="$1"
-  RELEASE_VERSION="$VERSION" # used by verify_provenance --source-ref
+  RELEASE_VERSION="$VERSION"
   lock_state
   TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
   download_release "$VERSION" "$TMP"
-  install_binary "$TMP"
   mkdir -p "$TMP/bundle"
-  # Reject absolute / traversal / symlink members before extracting.
-  # No pipes: under `set -euo pipefail` a `tar | grep -q` would SIGPIPE tar when
-  # grep exits early, and pipefail would turn the rejection into a silent pass.
   local tar_names unsafe_paths tar_verbose symlink_members
   tar_names="$(tar -tzf "$TMP/plugin-bundle.tar.gz")"
   unsafe_paths="$(printf '%s\n' "$tar_names" | grep -E '(^/|(^|/)\.\.(/|$))' || true)"
@@ -276,44 +174,25 @@ do_install() {  # $1=version tag (TMP intentionally global: EXIT trap)
     exit 1
   fi
   tar --no-same-owner --no-same-permissions -xzf "$TMP/plugin-bundle.tar.gz" -C "$TMP/bundle"
-  install_scripts "$TMP/bundle"
-  install_plugin "$TMP/bundle"
-  install_config "$TMP/bundle"
+  run_gateway_install "$TMP"
   echo "✓ installed $BIN_DIR/gateway ($VERSION)"
   case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "  ⚠ add to PATH: export PATH=\"$BIN_DIR:\$PATH\"";; esac
 }
 
-# Full wipe, inlined: never execute a downloaded or sibling script (a mutable
-# uninstall.sh fetched over the network, or a foreign /tmp/uninstall.sh, would be
-# unverified code execution). Only files this installer owns are removed.
 do_purge() {
-  if [ -x "$SHARE_DIR/setup-agents.sh" ] && is_ours "$SHARE_DIR/setup-agents.sh"; then
+  if [ -x "$SHARE_DIR/setup-agents.sh" ]; then
     "$SHARE_DIR/setup-agents.sh" --remove "$AGENTS" \
       || echo "  ! setup-agents --remove failed (check .bak-* backups)" >&2
   fi
-  if [ -d "$PLUGIN_DIR" ] && [ "$(plugin_id_at "$PLUGIN_DIR")" = "$PLUGIN_ID" ]; then
-    rm -rf "$PLUGIN_DIR"
-  elif [ -e "$PLUGIN_DIR" ]; then
-    echo "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
-  fi
-  if is_ours "$GATEWAY_BIN"; then
+  stop_daemon
+  if command -v omarchy >/dev/null 2>&1; then
+    echo "  → restarting the shell (unloads the plugin that respawns the daemon)"
+    omarchy restart shell >/dev/null 2>&1 || true
     stop_daemon
-    if command -v omarchy >/dev/null 2>&1; then
-      echo "  → restarting the shell (unloads the plugin that respawns the daemon)"
-      omarchy restart shell >/dev/null 2>&1 || true
-      stop_daemon
-    fi
-    rm -f "$GATEWAY_BIN"
-  elif [ -e "$GATEWAY_BIN" ]; then
-    echo "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
   fi
-  for f in setup-agents.sh remember-override.sh; do
-    p="$SHARE_DIR/$f"
-    if [ -e "$p" ] && is_ours "$p"; then rm -f "$p"; fi
-  done
-  rmdir "$SHARE_DIR" 2>/dev/null || true
-  rm -rf "$STATE_DIR" "$CONFIG_DIR"
-
+  run_self_remove 0 0
+  # Drop state/config again (SelfRemove already did; flock may keep an empty dir).
+  rm -rf "$STATE_DIR" "$CONFIG_DIR" 2>/dev/null || true
   local left=""
   [ -e "$GATEWAY_BIN" ] && left="$left $GATEWAY_BIN"
   [ -e "$PLUGIN_DIR" ] && left="$left $PLUGIN_DIR"
@@ -342,26 +221,8 @@ case "${1:-install}" in
     ;;
   remove)
     lock_state
-    if [ -e "$GATEWAY_BIN" ] && ! is_ours "$GATEWAY_BIN"; then
-      echo "  ⚠ keeping $GATEWAY_BIN (not installed by this installer)"
-    else
-      rm -f "$GATEWAY_BIN"
-    fi
-    if [ -d "$PLUGIN_DIR" ] && [ "$(plugin_id_at "$PLUGIN_DIR")" = "$PLUGIN_ID" ]; then
-      rm -rf "$PLUGIN_DIR"
-    elif [ -e "$PLUGIN_DIR" ]; then
-      echo "  ⚠ keeping $PLUGIN_DIR (not this plugin)"
-    fi
-    if [ -e "$SHARE_DIR/setup-agents.sh" ] && ! is_ours "$SHARE_DIR/setup-agents.sh"; then
-      echo "  ⚠ keeping $SHARE_DIR/setup-agents.sh (not ours)"
-    else
-      rm -f "$SHARE_DIR/setup-agents.sh"
-    fi
-    if [ -e "$SHARE_DIR/remember-override.sh" ] && ! is_ours "$SHARE_DIR/remember-override.sh"; then
-      echo "  ⚠ keeping $SHARE_DIR/remember-override.sh (not ours)"
-    else
-      rm -f "$SHARE_DIR/remember-override.sh"
-    fi
+    stop_daemon
+    run_self_remove 1 1
     echo "removed binary, plugin and helper script (state kept at $STATE_DIR, config kept at $CONFIG_FILE)"
     ;;
   purge)

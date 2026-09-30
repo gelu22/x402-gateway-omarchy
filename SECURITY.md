@@ -66,6 +66,12 @@ we have a fix or a mitigation.
   the CDP portal.
 - **The clock matters.** EIP-3009 authorizations are valid in a ±5 minute
   window; a machine with a wrong clock will see signatures rejected. Enable NTP.
+- **PATH trust boundary.** The installer resolves `gh` and `curl` from your
+  PATH. An attacker who controls your PATH already executes code as you (out of
+  scope). Mitigations: `type -P` rejects functions/aliases; attestation is
+  verified against a pinned signer workflow + tag (not just an exit code);
+  sha256 cross-check is always required. A future out-of-band anchor (signed
+  checksums with a pinned public key) would close this — see ADR-001 D11.
 
 ## Disclaimer
 

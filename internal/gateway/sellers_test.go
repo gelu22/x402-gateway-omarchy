@@ -158,9 +158,6 @@ func TestApproveSellerLandsAndPays(t *testing.T) {
 	// Full production mirror (main.go): spend + per-domain spend on settle.
 	gw.OnPayment = func(amountMicro int64, domain string) {
 		payments.Add(1)
-		if err := gw.Spend.Add(amountMicro); err != nil {
-			t.Errorf("spend add: %v", err)
-		}
 		if err := gw.Sellers.Add(domain, amountMicro); err != nil {
 			t.Errorf("sellers add: %v", err)
 		}
@@ -205,8 +202,8 @@ func TestSubCapBlocks(t *testing.T) {
 	srv := seller402(t, "30000", http.StatusOK)
 	_, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/content", nil, nil)
 	var perr *PolicyError
-	if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
-		t.Fatalf("want domain_cap_exceeded, got %v", err)
+	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
+		t.Fatalf("want budget_exceeded (domain sub-cap via Authorize), got %v", err)
 	}
 	if !perr.CanOverride || perr.AmountMicro != 30_000 {
 		t.Fatalf("want overridable 30000, got %+v", perr)

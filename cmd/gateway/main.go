@@ -25,6 +25,12 @@ import (
 var version = "dev"
 
 func main() {
+	// Lifecycle subcommands (42.3): must run before flag.Parse so --help of
+	// the daemon does not swallow `install --bundle`.
+	if len(os.Args) > 1 && (os.Args[1] == "install" || os.Args[1] == "self-remove") {
+		os.Exit(runInstallCmd(os.Args[1:]))
+	}
+
 	mcpMode := flag.Bool("mcp", false, "run as MCP stdio server (for AI agent configs)")
 	socketPath := flag.String("socket-path", "", "unix socket path (default $XDG_STATE_DIR/x402-gateway/gw.sock)")
 	stateDir := flag.String("state-dir", "", "state directory (default $XDG_STATE_DIR/x402-gateway)")

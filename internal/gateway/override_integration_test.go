@@ -31,12 +31,16 @@ func sellerAsking(t *testing.T, amount string, retryStatus int) *httptest.Server
 // a fetch denied by the daily budget changes nothing, the user's approval pays.
 func TestOverrideFlowBudgetExceededThenApprovedPays(t *testing.T) {
 	gw, payments := newSettleGateway(t)
-	if err := gw.Spend.Add(4_995_000); err != nil { // $4.995 of the $5 cap
+	tok, err := gw.Budget.Authorize(4_995_000, 5_000_000, 0, "seed") // $4.995 of the $5 cap
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Budget.Commit(tok); err != nil {
 		t.Fatal(err)
 	}
 	url := sellerWith(t, http.StatusOK).URL + "/content"
 
-	_, err := gw.Fetch(context.Background(), http.MethodGet, url, nil, nil)
+	_, err = gw.Fetch(context.Background(), http.MethodGet, url, nil, nil)
 	var perr *PolicyError
 	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
 		t.Fatalf("want budget_exceeded, got %v", err)
@@ -149,8 +153,8 @@ func TestOverrideBypassesDomainSubCap(t *testing.T) {
 
 	_, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, 60_000, false)
 	var perr *PolicyError
-	if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
-		t.Fatalf("want domain_cap_exceeded, got %v", err)
+	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
+		t.Fatalf("want budget_exceeded (domain sub-cap via Authorize), got %v", err)
 	}
 	if payments.Load() != 0 {
 		t.Fatalf("OnPayment = %d over sub-cap, want 0", payments.Load())

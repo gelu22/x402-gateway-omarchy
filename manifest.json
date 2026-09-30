@@ -2,11 +2,14 @@
   "schemaVersion": 1,
   "id": "gelu22.gateway",
   "name": "x402 Gateway",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "author": "gelu22",
   "license": "MIT",
   "description": "Automatic x402 payment gateway for local AI agents (USDC on Base).",
-  "kinds": ["service", "bar-widget"],
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
   "entryPoints": {
     "service": "Service.qml",
     "barWidget": "BarWidget.qml"

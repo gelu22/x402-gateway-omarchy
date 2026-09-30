@@ -23,7 +23,7 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.12   # any released tag (see the Releases page)
+VERSION=v0.1.13   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -39,7 +39,7 @@ copy: it is not attestation-checked, and a moved tag would silently run a
 different installer.
 
 ```bash
-git clone --branch v0.1.12 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.13 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 less x402-gateway-omarchy/scripts/install.sh
 ```
 
@@ -66,7 +66,7 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.12
+VERSION=v0.1.13
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -83,7 +83,7 @@ Check what changed in [CHANGELOG.md](CHANGELOG.md).
 Interactive deinstaller — one self-contained chain (download → verify → run):
 
 ```bash
-VERSION=v0.1.12
+VERSION=v0.1.13
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -98,7 +98,7 @@ plugin, the helper, the agent MCP entries, your state **including the audit
 log**, and the plugin config) — the same self-contained chain, with `--yes`:
 
 ```bash
-VERSION=v0.1.12
+VERSION=v0.1.13
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -220,6 +220,32 @@ ceiling is not, so tampering with that file cannot lift it.
 - The ceiling is a deployment setting: the operator sets it in the CDP Portal
   (or with an API key), and this build does not carry the value. Nothing on your
   computer can change it — see the release notes for what your operator deployed.
+
+
+## Supported payment rail
+
+What the gateway will sign for — and what it will not. This is a product
+contract, not a preference; see ADR-001 **D10**.
+
+**What it accepts (all must hold):**
+
+- scheme `exact`
+- network on the allowlist (`eip155:84532` Base Sepolia, `eip155:8453` Base mainnet)
+- asset = the pinned ERC-20 that supports **EIP-3009** (USDC), settleable via CDP,
+  and covered by the per-payment ceiling
+- `payTo` a valid hex address
+- `amount > 0` (canonical decimal)
+
+**The loop:** `402 (accepts[]) → checks (scheme/network/asset → policy → seller →
+budget) → sign (CDP TEE, EIP-3009) → retry with Payment-Signature → content`.
+
+**Bounds per payment:** daily budget (local), per-domain sub-cap (local),
+**per-payment ceiling (Coinbase — not liftable from your machine)**, wallet balance.
+
+**Out of scope (by design):** any non-`exact` scheme and any non-EVM rail
+(e.g. Nano/XNO). The seller advertises the rail; a client cannot choose it. A
+different rail family needs its own scheme, facilitator and trust model — a
+companion project, not a config change. See ADR-001 D10.
 
 ## MFA TOTP (optional, recommended)
 
