@@ -1,7 +1,7 @@
-// BudgetsSection.qml — single daily budget as a Spent/Cap/Remaining pillar row
-// (40.2) + cap edit. Pure presentation; emits saveRequested(usd) on Enter/button.
-// 0 = always ask. Pillar values are pre-formatted numbers (currency lives in the
-// header + the hero balance); no money math here (AGENTS.md rule 7).
+// BudgetsSection.qml — Daily Budget as one quiet block: Spent/Cap/Remaining
+// pillars + Daily cap + Save (43.2). Pure presentation; emits saveRequested(usd)
+// on Enter/button. 0 = always ask. Pillar values are pre-formatted numbers
+// (currency in the header); no money math here (AGENTS.md #6).
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -20,6 +20,9 @@ Column {
     property string validationError: ""
     property string capWarning: ""
 
+    // Quieter form chrome — labels/field/hint sit below Status in hierarchy.
+    readonly property color formMuted: Qt.darker(Color.foreground, 1.45)
+
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
@@ -29,14 +32,14 @@ Column {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: Model.ICON_BUDGET
-            color: Color.foreground
+            color: root.formMuted
             font.family: Style.font.family
             font.pixelSize: Style.font.icon
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: "DAILY BUDGET (USD)"
-            color: Qt.darker(Color.foreground, 1.4)
+            color: root.formMuted
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
             font.letterSpacing: 1
@@ -44,7 +47,7 @@ Column {
         }
     }
 
-    // ---- Pillar row: Spent / Cap / Remaining (the ratio is the hero meter) ----
+    // ---- Pillar row: Spent / Cap / Remaining (sole spend/cap ratio after 43.1) ----
     Row {
         width: parent.width
         spacing: Style.space(8)
@@ -71,22 +74,47 @@ Column {
         }
     }
 
-    // ---- Cap edit (field + Save) ----
-    Row {
-        spacing: Style.space(10)
+    // ---- Cap edit: quiet field + Save; one static hint under the field ----
+    Column {
+        width: parent.width
+        spacing: Style.space(4)
 
-        Column {
-            spacing: Style.space(2)
-            Text { text: "Daily cap"; color: Color.foreground; font.pixelSize: Style.font.caption }
-            TextField {
-                id: capField
-                width: Style.space(90)
-                placeholderText: Model.formatUsdExact(root.capDaily)
-                onAccepted: root.submit()
+        Row {
+            spacing: Style.space(10)
+
+            Column {
+                spacing: Style.space(2)
+                Text {
+                    text: "Daily cap"
+                    color: root.formMuted
+                    font.pixelSize: Style.font.caption
+                }
+                TextField {
+                    id: capField
+                    width: Style.space(90)
+                    // Dimmer chrome than Status / pillars; kit Color tokens only.
+                    foreground: root.formMuted
+                    placeholderText: Model.formatUsdExact(root.capDaily)
+                    onAccepted: root.submit()
+                }
+            }
+
+            Button {
+                text: "Save"
+                anchors.bottom: parent.bottom
+                onClicked: root.submit()
             }
         }
 
-        Button { text: "Save"; anchors.bottom: parent.bottom; onClicked: root.submit() }
+        // Exactly one permanent hint under the field (0 = always ask).
+        Text {
+            width: parent.width
+            text: "0 disables automatic payments — every purchase asks for approval."
+            color: root.formMuted
+            opacity: 0.85
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+        }
     }
 
     Text {
@@ -103,15 +131,6 @@ Column {
         visible: root.capWarning !== ""
         text: root.capWarning
         color: Model.Palette.warn
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-    }
-
-    Text {
-        width: parent.width
-        text: "0 disables automatic payments — every purchase asks for approval."
-        color: Color.foreground
-        opacity: 0.7
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
     }

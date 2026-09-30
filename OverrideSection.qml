@@ -1,8 +1,6 @@
-// OverrideSection.qml — remembered over-budget approvals: count + link to the
-// plugin config file. The list lives in ~/.config/omarchy/x402-gateway/config.json
-// (edited by hand or written from the approval dialog); there is no inline list
-// and no helper script (009.7).
-import Quickshell
+// OverrideSection.qml — remembered over-budget approvals: count + empty state.
+// Open config lives in Account (43.3). Empty-state hint only — no config-path
+// prose (removed in 43.4). List file: ~/.config/omarchy/x402-gateway/config.json.
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -12,7 +10,6 @@ Column {
     id: root
 
     property int count: 0
-    property string configPath: ""
 
     width: parent ? parent.width : 0
     spacing: Style.space(4)
@@ -38,14 +35,6 @@ Column {
             font.letterSpacing: 1
             font.bold: true
         }
-
-        Button {
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Open config"
-            enabled: root.configPath !== ""
-            tooltipText: root.configPath !== "" ? root.configPath : "Config path unavailable"
-            onClicked: root.openConfig()
-        }
     }
 
     // Empty state (39.2): zero looks the same as N by design, so say what
@@ -58,12 +47,5 @@ Column {
         opacity: 0.7
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
-    }
-
-    // Opens the config in the user's editor via the Omarchy-native launcher
-    // (surfaces a toast); creates nothing — the file is seeded by install.sh.
-    function openConfig() {
-        if (root.configPath === "") return
-        Quickshell.execDetached(["omarchy", "launch", "config", "editor", root.configPath])
     }
 }

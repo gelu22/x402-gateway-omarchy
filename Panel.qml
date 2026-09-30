@@ -67,9 +67,11 @@ Panel {
     // Poll interval for auto-refresh while open (tunable in one place).
     property int pollIntervalMs: 15000
 
-    // AI agents section is collapsed by default; the state survives open/close
-    // (the panel stays instantiated) and resets only on shell restart.
-    property bool agentsExpanded: false
+    // Account / Advanced disclosures: session-only (reset on shell restart).
+    property bool accountExpanded: false
+    property bool advancedExpanded: false
+    // Version stamp is debug-only (43.4); fail-closed without GATEWAY_PANEL_DEBUG=1.
+    readonly property bool panelDebug: Model.panelDebugEnabled(Quickshell.env("GATEWAY_PANEL_DEBUG"))
 
     property string agentScriptPath: Model.shareFilePath(Quickshell.env("HOME"), "setup-agents.sh")
 
@@ -479,7 +481,7 @@ Panel {
             width: parent.width
             spacing: Style.space(12)
 
-            // ---- Hero: balance + meter · state · power (40.1) ----
+            // ---- Hero: Status row — balance + chip + power (43.1) ----
             HeroSection {
                 width: parent.width
                 heroLabel: root.heroLabel
@@ -491,8 +493,6 @@ Panel {
                 bar: root.bar
                 working: root.busy || root.pausing
                 balanceText: Model.formatUsdcExact(root.balanceNum)
-                spendToday: root.spendToday
-                capDaily: root.capDaily
                 onTogglePause: function(checked) { root.setPaused(checked) }
             }
 
@@ -519,7 +519,7 @@ Panel {
 
             PanelSeparator { visible: root.online }
 
-            // ---- Daily budget & spend ----
+            // ---- Daily budget (quiet card after Status, 43.2) ----
             BudgetsSection {
                 visible: root.online
                 spendToday: root.spendToday
@@ -529,7 +529,7 @@ Panel {
 
             PanelSeparator { visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online }
 
-            // ---- Wallet: short address + copy icon / MFA / logout ----
+            // ---- Account: collapsed summary + Open config / MFA / logout (43.3) ----
             WalletSection {
                 visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online
                 walletAddress: root.walletAddress
@@ -538,7 +538,14 @@ Panel {
                 mfaMethod: root.mfaMethod
                 busy: root.busy
                 mfaBusy: mfa.busy
+                configPath: root.configPath
+                expanded: root.accountExpanded
+                onToggle: root.accountExpanded = !root.accountExpanded
                 onCopyAddress: function() { root.copyAddress() }
+                onOpenConfig: function() {
+                    if (root.configPath === "") return
+                    Quickshell.execDetached(["omarchy", "launch", "config", "editor", root.configPath])
+                }
                 onStartMfaEnroll: function() { mfa.startMfaEnroll() }
                 onOpenMfaReset: function() { mfa.openMfaReset() }
                 onRequestLogout: function() { root.confirmLogoutDialog = true }
@@ -546,102 +553,43 @@ Panel {
 
             PanelSeparator { visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online }
 
-            // ---- AI agents (opt-in integration) — collapsible, collapsed by default ----
-            Column {
-                id: agentsWrap
+            // ---- Advanced: AI Agents + Remembered overrides (flat, 43.4) ----
+            CollapsibleSection {
                 visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online
                 width: parent.width
-                spacing: Style.space(4)
+                title: "ADVANCED"
+                iconText: Model.ICON_AGENTS
+                expanded: root.advancedExpanded
+                onToggle: root.advancedExpanded = !root.advancedExpanded
 
-                Item {
-                    id: agentsHeader
-                    width: parent.width
-                    implicitHeight: headerRow.implicitHeight
-                    // Keyboard-operable (39.3): the whole header is one Tab
-                    // stop; Space/Enter toggles like a click. Focus cue on
-                    // the chevron (accent while focused).
-                    activeFocusOnTab: true
-                    Keys.onSpacePressed: root.agentsExpanded = !root.agentsExpanded
-                    Keys.onReturnPressed: root.agentsExpanded = !root.agentsExpanded
-                    Keys.onEnterPressed: root.agentsExpanded = !root.agentsExpanded
-
-                    RowLayout {
-                        id: headerRow
-                        width: parent.width
-                        spacing: Style.space(6)
-
-                        Text {
-                            text: root.agentsExpanded ? "▾" : "▸"
-                            color: agentsHeader.activeFocus ? Color.accent : Color.foreground
-                            font.pixelSize: Style.font.caption
-                            Layout.preferredWidth: 12
-                        }
-
-                        Text {
-                            text: Model.ICON_AGENTS
-                            color: Color.foreground
-                            font.family: Style.font.family
-                            font.pixelSize: Style.font.icon
-                            Layout.preferredWidth: 16
-                        }
-
-                        Text {
-                            text: "AI AGENTS"
-                            color: Qt.darker(Color.foreground, 1.4)
-                            font.family: Style.font.family
-                            font.pixelSize: Style.font.caption
-                            font.letterSpacing: 1
-                            font.bold: true
-                        }
-
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.agentsExpanded = !root.agentsExpanded
-                    }
+                // Static CAPS label (no nested ▸) — list lives in AgentSection.
+                Text {
+                    text: "AI AGENTS"
+                    color: Qt.darker(Color.foreground, 1.4)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1
+                    font.bold: true
                 }
 
                 AgentSection {
                     width: parent.width
-                    visible: root.agentsExpanded
                     scriptPath: root.agentScriptPath
                     onFailed: function(msg) { root.fail(msg) }
-                }
-            }
-
-            PanelSeparator { visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online }
-
-            // ---- Remembered over-budget approvals (count + config link) ----
-            Column {
-                id: rememberedWrap
-                visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online
-                width: parent.width
-                spacing: Style.space(4)
-
-                Text {
-                    width: parent.width
-                    text: "These URLs pay without asking — manage the list in the config file."
-                    color: Color.foreground
-                    opacity: 0.7
-                    font.pixelSize: Style.font.caption
-                    wrapMode: Text.WordWrap
                 }
 
                 OverrideSection {
                     id: overrideSection
                     width: parent.width
                     count: root.rememberedUrls.length
-                    configPath: root.configPath
                 }
             }
 
             PanelSeparator {
                 visible: wizard.step === 0 || wizard.step === 1 || wizard.step === 2
                          || (wizard.step === 3 && wizard.doneSeen)
-                         || root.errorMessage !== "" || root.daemonVersion !== ""
+                         || root.errorMessage !== ""
+                         || (root.panelDebug && (root.pluginStamp !== "" || root.daemonVersion !== ""))
             }
 
             // ---- Wizard steps (onboarding / edit limits) ----
@@ -670,7 +618,9 @@ Panel {
 
             Text {
                 width: parent.width
-                visible: root.pluginStamp !== "" || root.daemonVersion !== ""
+                // Debug-only stamp (43.4): keep reading build-info + /status version;
+                // hide the row unless GATEWAY_PANEL_DEBUG=1.
+                visible: root.panelDebug && (root.pluginStamp !== "" || root.daemonVersion !== "")
                 text: {
                     var parts = []
                     if (root.pluginStamp !== "") parts.push(root.pluginStamp)

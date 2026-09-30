@@ -1,13 +1,11 @@
-// WalletSection.qml — wallet address + balance + MFA + logout (39.2).
-// Pure composition of the former Panel.qml wallet block. Props in, signals
-// out; socket calls (copyAddress, MFA enroll/reset, logout) stay in Panel.
+// WalletSection.qml — Account: collapsed summary + Open config / MFA / Logout
+// (43.3). Pure composition; socket calls stay in Panel via signals.
 import QtQuick
-import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-Column {
+CollapsibleSection {
     id: root
 
     property string walletAddress: ""
@@ -16,49 +14,23 @@ Column {
     property string mfaMethod: ""
     property bool busy: false
     property bool mfaBusy: false
-    // Copy feedback (39.1 pattern): the copy icon flashes ok-green while set.
+    property string configPath: ""
+    // Copy feedback (39.1): the copy control flashes ok-green while set.
     property bool addressCopied: false
     property int copyFeedbackMs: 2000
 
     signal copyAddress()
+    signal openConfig()
     signal startMfaEnroll()
     signal openMfaReset()
     signal requestLogout()
 
-    width: parent ? parent.width : 0
-    spacing: Style.space(4)
+    iconText: Model.ICON_WALLET
+    title: Model.networkLabel(root.paymentNetwork) + " · " + Model.shortAddress(root.walletAddress)
+    trailingText: Model.mfaLabel(root.mfaEnrolled, root.mfaMethod)
+    trailingColor: Model.mfaBadge(root.mfaEnrolled)
 
-    // ---- Section header: icon + CAPS label (40.2 dashboard language). The
-    // balance itself lives in the hero (40.1) — not repeated here.
-    Row {
-        spacing: Style.space(6)
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: Model.ICON_WALLET
-            color: Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.icon
-        }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: ("Wallet (" + Model.USDC + " on " + Model.networkLabel(root.paymentNetwork) + ")").toUpperCase()
-            color: Qt.darker(Color.foreground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1
-            font.bold: true
-        }
-    }
-
-    Text {
-        width: parent.width
-        text: "Network is set in the plugin config file — use \"Open config\" below."
-        color: Color.foreground
-        opacity: 0.7
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-    }
-
+    // ---- Body (visible when expanded) ----
     Row {
         width: parent.width
         spacing: Style.space(8)
@@ -85,7 +57,14 @@ Column {
         }
     }
 
-    // MFA: explicit text + shield (on/off), optional enrollment.
+    Button {
+        text: "Open config"
+        enabled: root.configPath !== ""
+        tooltipText: root.configPath !== "" ? root.configPath : "Config path unavailable"
+        onClicked: root.openConfig()
+    }
+
+    // MFA: explicit text + Enable/Reset (enroll/reset semantics unchanged).
     Row {
         width: parent.width
         spacing: Style.space(8)
@@ -116,17 +95,9 @@ Column {
 
     PanelSeparator {}
 
-    // Logout: destructive action with confirmation.
-    Row {
-        width: parent.width
-        spacing: Style.space(8)
-
-        Item { Layout.fillWidth: true }
-
-        Button {
-            text: "Logout"
-            enabled: !root.busy
-            onClicked: root.requestLogout()
-        }
+    Button {
+        text: "Logout"
+        enabled: !root.busy
+        onClicked: root.requestLogout()
     }
 }

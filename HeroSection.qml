@@ -1,8 +1,7 @@
-// HeroSection.qml — panel hero: balance + spend/cap meter · state · power (40.1).
-// Pure composition of the former Panel.qml hero block. Props in, one signal
-// out; daemon truth (setPaused) stays in Panel — no Process/socket here.
-// The balance number and meter fraction arrive pre-formatted/pre-computed
-// (Panel + Model) — this file only renders (AGENTS.md rule 7).
+// HeroSection.qml — Status row: BALANCE + amount + status chip + power (43.1).
+// Pure composition. Props in, one signal out; daemon truth (setPaused) stays
+// in Panel — no Process/socket here. The balance number arrives pre-formatted
+// (Panel → Model.formatUsdcExact) — this file only renders (AGENTS.md #6).
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -20,30 +19,30 @@ Column {
     property var bar: null
     property bool working: false
     property string balanceText: "0.00 USDC"
-    property real spendToday: 0
-    property real capDaily: 0
 
     signal togglePause(bool checked)
 
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
-    // ---- Balance block (nexthop dashboard language): CAPS label, big number
-    // in the state tone, thin spend/cap meter. The meter hides when the cap is
-    // 0 (auto-pay off) — a 0% bar would lie with false precision.
-    Column {
+    // CAPS label keeps the money path labeled without a second chrome row.
+    Text {
+        text: "BALANCE"
+        color: Qt.darker(Color.foreground, 1.4)
+        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+        font.pixelSize: Style.font.caption
+        font.letterSpacing: 1
+    }
+
+    // One Status row: large amount · status chip · power toggle.
+    Item {
         width: parent.width
-        spacing: Style.space(4)
+        implicitHeight: Math.max(balanceLabel.implicitHeight, statusChip.implicitHeight, heroPower.implicitHeight)
 
         Text {
-            text: "BALANCE"
-            color: Qt.darker(Color.foreground, 1.4)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1
-        }
-
-        Text {
+            id: balanceLabel
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
             text: root.balanceText
             color: root.heroColor
             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -51,54 +50,37 @@ Column {
             font.weight: Font.Bold
         }
 
-        BudgetMeter {
-            width: parent.width
-            visible: root.capDaily > 0
-            fraction: Model.budgetFraction(root.spendToday, root.capDaily)
-            tone: root.heroColor
-        }
-    }
-
-    // ---- State row: icon · title/state · power (unchanged from 39.2) ----
-    Item {
-        width: parent.width
-        implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight, heroPower.implicitHeight)
-
-        Text {
-            id: heroIcon
-            anchors.left: parent.left
+        // Pill chip: heroLabel + heroColor (no hardcoded "Gateway Active").
+        Rectangle {
+            id: statusChip
+            anchors.left: balanceLabel.right
+            anchors.leftMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
-            text: Model.ICON_WALLET
-            color: root.heroColor
-            font.pixelSize: Style.font.display
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-        }
-
-        Column {
-            id: heroLabels
-            anchors.left: heroIcon.right
-            anchors.leftMargin: Style.space(12)
-            anchors.right: heroPower.left
-            anchors.rightMargin: Style.space(12)
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            // Cap so a long label never collides with the toggle.
+            readonly property real room: Math.max(
+                0,
+                parent.width - balanceLabel.width - heroPower.width
+                    - Style.space(10) - Style.space(12)
+            )
+            implicitWidth: chipText.implicitWidth + Style.space(14)
+            width: room > 0 ? Math.min(implicitWidth, room) : implicitWidth
+            height: chipText.implicitHeight + Style.space(6)
+            radius: height / 2
+            color: Qt.rgba(root.heroColor.r, root.heroColor.g, root.heroColor.b, 0.15)
+            border.color: Qt.rgba(root.heroColor.r, root.heroColor.g, root.heroColor.b, 0.45)
+            border.width: 1
 
             Text {
-                width: parent.width
-                text: "x402 Gateway"
-                color: Color.foreground
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                font.pixelSize: Style.font.subtitle
-                font.bold: true
-                elide: Text.ElideRight
-            }
-            Text {
-                width: parent.width
+                id: chipText
+                anchors.centerIn: parent
+                width: parent.width - Style.space(14)
                 text: root.heroLabel
                 color: root.heroColor
-                opacity: 0.8
-                font.pixelSize: Style.font.bodySmall
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.caption
+                font.weight: Font.DemiBold
                 elide: Text.ElideRight
+                horizontalAlignment: Text.AlignHCenter
             }
         }
 

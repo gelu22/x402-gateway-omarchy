@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.14] — 2026-09-30
+
+### Changed
+
+- **Panel compact hierarchy**: Status is one row (large balance + status chip +
+  power toggle); Daily Budget is a quieter single section; Account is collapsed
+  by default (network · short address · MFA in the header; Open config / MFA /
+  Logout in the body); AI Agents and Remembered overrides sit under one
+  Advanced disclosure (no nested agent chevron). The `plugin v… · daemon v…`
+  stamp is hidden unless `GATEWAY_PANEL_DEBUG=1` (fail-closed).
+
+### Security
+
+- **Security-class gate harden**: money/lifecycle path coverage for
+  `internal/budget` and `internal/install`; stricter mutable `/tmp` detection;
+  `security_class_test.sh` wired into preflight.
+
 ## [0.1.13] — 2026-09-30
 
 ### Security

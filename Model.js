@@ -232,6 +232,13 @@ function buildInfoLabel(raw) {
     return sha !== "" ? "plugin v" + v + " (" + sha + ")" : "plugin v" + v
 }
 
+// panelDebugEnabled gates the panel version stamp (43.4). Fail-closed: only
+// the exact string "1" enables it; missing/empty/other values stay hidden.
+function panelDebugEnabled(envVal) {
+    // Strict equality — env from Quickshell is a string; never coerce 1/"true".
+    return envVal === "1"
+}
+
 // clipboardCommand returns the argv that copies text to the Wayland
 // clipboard (caller runs Quickshell.execDetached). Pure — .pragma library
 // cannot touch Quickshell, so we return argv like buildCommand does.

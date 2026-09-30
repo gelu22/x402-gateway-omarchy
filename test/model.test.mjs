@@ -62,6 +62,7 @@ function loadModelJS() {
       budgetFraction: (typeof budgetFraction !== "undefined") ? budgetFraction : undefined,
       budgetRemaining: (typeof budgetRemaining !== "undefined") ? budgetRemaining : undefined,
       buildInfoLabel: (typeof buildInfoLabel !== "undefined") ? buildInfoLabel : undefined,
+      panelDebugEnabled: (typeof panelDebugEnabled !== "undefined") ? panelDebugEnabled : undefined,
       clipboardCommand: (typeof clipboardCommand !== "undefined") ? clipboardCommand : undefined,
       USDC: (typeof USDC !== "undefined") ? USDC : undefined,
       USD_SYMBOL: (typeof USD_SYMBOL !== "undefined") ? USD_SYMBOL : undefined,
@@ -1374,5 +1375,15 @@ describe("buildInfoLabel (41.3: release stamp in the panel footer)", () => {
   it("returns empty for malformed JSON or a missing version (fail-safe, no crash)", () => {
     for (const bad of ["not json", "{", "[]", "null", "{}", '{"git_sha":"abc"}'])
       assert.strictEqual(Model.buildInfoLabel(bad), "", bad);
+  });
+});
+
+describe("panelDebugEnabled (43.4: version stamp fail-closed)", () => {
+  it("is true only for the exact string \"1\"", () => {
+    assert.strictEqual(Model.panelDebugEnabled("1"), true);
+  });
+  it("is false for missing/empty/other values", () => {
+    for (const v of [undefined, null, "", "0", "true", "yes", "1 ", " 1", 1])
+      assert.strictEqual(Model.panelDebugEnabled(v), false, String(v));
   });
 });
