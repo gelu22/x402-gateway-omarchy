@@ -783,12 +783,14 @@ function parseStatus(raw) {
         else if (o.last_block && o.last_block.reason === "invalid_amount")
             blockText = "Single request rejected (invalid amount) — unpaid"
 
+        // Exact micro-USDC strings for bar/tooltip (NEW-P2-1 / 44.6): never
+        // collapse a non-zero micro amount to "0.00" via fixed-decimal formatUsd.
         return {
             ok: true,
             state: state,
-            spend_today: formatUsd(o.spend_today_usdc, Precision.SPEND),
-            budget_daily: formatUsd(o.budget_daily_usdc, Precision.MONEY),
-            balance_usd: formatUsd(o.wallet_balance_usdc, Precision.SPEND),
+            spend_today: formatUsdExact(o.spend_today_usdc),
+            budget_daily: formatUsdExact(o.budget_daily_usdc),
+            balance_usd: formatUsdExact(o.wallet_balance_usdc),
             payment_network: o.payment_network || "",
             address: o.wallet_address || "",
             block_text: blockText,
@@ -798,8 +800,8 @@ function parseStatus(raw) {
         }
     } catch (e) {
         return { ok: false, state: State.OFFLINE,
-                 spend_today: formatUsd(0, Precision.SPEND), budget_daily: formatUsd(0),
-                 balance_usd: formatUsd(0, Precision.SPEND), address: "", block_text: "",
+                 spend_today: formatUsdExact(0), budget_daily: formatUsdExact(0),
+                 balance_usd: formatUsdExact(0), address: "", block_text: "",
                  mfa_enrolled: false, mfa_method: "", raw: null }
     }
 }

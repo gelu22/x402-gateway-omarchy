@@ -16,10 +16,21 @@ AGENTS="opencode,claude-code,cursor,codex,gemini"
 say() { printf '%s\n' "$*"; }
 
 lock_state() {
-  mkdir -p "$STATE_DIR"
+  # Refuse a symlinked state dir first: mkdir -p and chmod both follow the link
+  # and would change a directory this uninstaller does not own (reguła 7).
+  if [ -L "$STATE_DIR" ]; then
+    say "  ✗ $STATE_DIR is a symlink — refusing to touch it."
+    exit 1
+  fi
+  # See install.sh lock_state: -m applies on create, chmod corrects an existing
+  # 0755 dir, and a chmod failure is a warning on filesystems without POSIX
+  # permissions (46.13).
+  mkdir -p -m 0700 "$STATE_DIR"
+  chmod 0700 "$STATE_DIR" 2>/dev/null || \
+    say "  ⚠ could not tighten perms on $STATE_DIR (filesystem without POSIX permissions?)"
   exec 9>"$STATE_DIR/.lock"
   if ! flock -n 9; then
-    say "  ✗ another install/remove/purge is already running." >&2
+    say "  ✗ another install/remove/purge is already running."
     exit 1
   fi
 }

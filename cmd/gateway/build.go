@@ -21,7 +21,10 @@ import (
 )
 
 func buildGateway(cfg *config.Config, logger *slog.Logger) (*gateway.Gateway, *session.Manager, *telemetry.Client, error) {
-	pol := policy.MustLoad(cfg.StateDir, logger)
+	pol, err := policy.Load(cfg.StateDir)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	gw := &gateway.Gateway{
 		Client:       cdp.NewClient(cfg.ProjectID),
 		PolicyPath:   filepath.Join(cfg.StateDir, "policy.json"),
@@ -66,14 +69,9 @@ func buildGateway(cfg *config.Config, logger *slog.Logger) (*gateway.Gateway, *s
 	if cfg.CDPBaseURL != "" {
 		gw.Client.BaseURL = cfg.CDPBaseURL
 	}
-	// OnPayment: domain spend + balance cache + telemetry. Daily budget is
-	// committed by fetch_sign before this hook (no Spend.Add).
+	// OnPayment: 2xx-only telemetry + balance cache. Domain spend is charged
+	// in fetch_sign.chargeDomain on every post-sig Commit (44.repass.1).
 	gw.OnPayment = func(amountMicro int64, domain string) {
-		if gw.Sellers != nil {
-			if err := gw.Sellers.Add(domain, amountMicro); err != nil {
-				logger.Warn("sellers record", "err", err)
-			}
-		}
 		if gw.Balance != nil {
 			gw.Balance.Invalidate()
 		}

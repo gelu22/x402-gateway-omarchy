@@ -59,7 +59,7 @@ func Load(stateDir string) (*Policy, error) {
 	}
 	var pf policyFile
 	if err := json.Unmarshal(raw, &pf); err != nil {
-		return Default(), fmt.Errorf("policy: corrupt %s, using defaults", path)
+		return nil, fmt.Errorf("policy: corrupt %s: %w", path, err)
 	}
 	p := Default()
 	if pf.DailyCapMicro != nil {
@@ -72,15 +72,19 @@ func Load(stateDir string) (*Policy, error) {
 		p.BuilderCode = sf
 	}
 	if len(pf.AllowedNetworks) > 0 && len(pf.PinnedAssets) > 0 {
-		p.AllowedNetworks = pf.AllowedNetworks
-		p.PinnedAssets = pf.PinnedAssets
+		nets, pins, err := narrowPins(pf.AllowedNetworks, pf.PinnedAssets)
+		if err != nil {
+			return nil, fmt.Errorf("policy: invalid %s: %w", path, err)
+		}
+		p.AllowedNetworks = nets
+		p.PinnedAssets = pins
 	}
 	if err := p.validate(); err != nil {
-		return Default(), fmt.Errorf("policy: invalid %s (%v), using defaults", path, err)
+		return nil, fmt.Errorf("policy: invalid %s: %w", path, err)
 	}
+	// Invalid attribution must not abort start or widen caps — strip only.
 	if p.BuilderCode != "" && !x402.ValidBuilderCode(p.BuilderCode) {
 		p.BuilderCode = ""
-		return p, fmt.Errorf("policy: invalid builder_code in %s, attribution disabled", path)
 	}
 	return p, nil
 }
@@ -111,14 +115,49 @@ func (p *Policy) validate() error {
 	if len(p.AllowedNetworks) == 0 || len(p.PinnedAssets) == 0 {
 		return fmt.Errorf("no allowed networks/assets")
 	}
+	if _, _, err := narrowPins(p.AllowedNetworks, p.PinnedAssets); err != nil {
+		return err
+	}
 	return nil
 }
 
-// MustLoad loads the policy, logging a warning and falling back to defaults.
-func MustLoad(stateDir string, logger interface{ Warn(string, ...any) }) *Policy {
-	p, err := Load(stateDir)
-	if err != nil && logger != nil {
-		logger.Warn("policy: " + err.Error())
+// narrowPins enforces chains SSOT: file may only narrow SupportedCAIP2s /
+// USDCContract — never extend (THREAT-MODEL T1 / 45.6). Rejects unknown
+// networks, wrong pins, or pins not listed in allowed_networks.
+func narrowPins(nets []string, pins map[string]string) ([]string, map[string]string, error) {
+	outNets := make([]string, 0, len(nets))
+	outPins := make(map[string]string, len(nets))
+	seen := make(map[string]bool, len(nets))
+	for _, n := range nets {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			return nil, nil, fmt.Errorf("empty network in allowed_networks")
+		}
+		if !chains.IsSupported(n) {
+			return nil, nil, fmt.Errorf("unsupported network %q (policy may only narrow chains SSOT)", n)
+		}
+		if seen[n] {
+			continue
+		}
+		want := chains.USDCContract(n)
+		got, ok := pins[n]
+		if !ok {
+			return nil, nil, fmt.Errorf("missing pinned_assets for %s", n)
+		}
+		if !strings.EqualFold(strings.TrimSpace(got), want) {
+			return nil, nil, fmt.Errorf("pinned asset for %s must be code USDC %s", n, want)
+		}
+		seen[n] = true
+		outNets = append(outNets, n)
+		outPins[n] = want
 	}
-	return p
+	for net := range pins {
+		if !seen[net] {
+			return nil, nil, fmt.Errorf("pinned_assets network %q not in allowed_networks or unsupported", net)
+		}
+	}
+	if len(outNets) == 0 {
+		return nil, nil, fmt.Errorf("no allowed networks/assets")
+	}
+	return outNets, outPins, nil
 }

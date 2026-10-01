@@ -158,9 +158,7 @@ func TestApproveSellerLandsAndPays(t *testing.T) {
 	// Full production mirror (main.go): spend + per-domain spend on settle.
 	gw.OnPayment = func(amountMicro int64, domain string) {
 		payments.Add(1)
-		if err := gw.Sellers.Add(domain, amountMicro); err != nil {
-			t.Errorf("sellers add: %v", err)
-		}
+		// Domain spend: fetch_sign.chargeDomain (44.repass.1) — do not Add here.
 	}
 	srv := seller402(t, "50000", http.StatusOK)
 
@@ -183,6 +181,37 @@ func TestApproveSellerLandsAndPays(t *testing.T) {
 	// (Different path: same URL within the 5s dedup window would be rejected.)
 	if _, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/content2", nil, nil); err != nil {
 		t.Fatalf("known seller below sub-cap must pay, got %v", err)
+	}
+}
+
+// TestApproveSellerLandFailClosed (NEW-P3-1 / 45.4): Land persist error must
+// abort approveSeller — zero Sign/Commit, seller stays unknown.
+func TestApproveSellerLandFailClosed(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	dir := t.TempDir()
+	gw.Sellers = NewSellerRegistry(dir)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	srv := seller402(t, "50000", http.StatusOK)
+	_, err := gw.FetchWithOverride(context.Background(), http.MethodGet, srv.URL+"/content", nil, nil, 50_000, true)
+	if err == nil {
+		t.Fatal("approve with Land fail must err")
+	}
+	var perr *PolicyError
+	if !errors.As(err, &perr) || perr.Code != "upstream_error" {
+		t.Fatalf("want upstream_error, got %v", err)
+	}
+	if got := gw.Signer.(*settleSigner).signCalls.Load(); got != 0 {
+		t.Fatalf("signed %d times over failed Land; want 0", got)
+	}
+	if got := payments.Load(); got != 0 {
+		t.Fatalf("payments = %d, want 0", got)
+	}
+	if known, _ := gw.Sellers.Known("127.0.0.1"); known {
+		t.Fatal("failed Land must not mark seller known")
 	}
 }
 
@@ -334,5 +363,50 @@ func TestCaseVariantKeysMergeBySum(t *testing.T) {
 	}
 	if v != 10000 {
 		t.Fatalf("merged spend = %d, want 10000", v)
+	}
+}
+
+// TestSubCapIsPerHostnameNotRegistrableDomain (46.11, F6) pins the T1 boundary:
+// the sub-cap is keyed by hostname, so two hosts of the same registrable domain
+// each get a full sub-cap. Folding to the registrable domain would need a
+// public-suffix list (a new dependency) and would change the policy model, so it
+// is deliberately not done. This test makes a future fold a conscious act rather
+// than a silent behaviour change.
+func TestSubCapIsPerHostnameNotRegistrableDomain(t *testing.T) {
+	reg := NewSellerRegistry(t.TempDir())
+	if err := reg.Land("a.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Land("b.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	// Spend almost the whole sub-cap on the first host.
+	if err := reg.Add("a.example.com", 45_000); err != nil {
+		t.Fatal(err)
+	}
+	a, err := reg.Today("a.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != 45_000 {
+		t.Fatalf("a.example.com spend = %d, want 45000", a)
+	}
+	// The sibling host has its own budget: no folding to example.com.
+	b, err := reg.Today("b.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b != 0 {
+		t.Fatalf("b.example.com spend = %d, want 0 (per-hostname sub-cap)", b)
+	}
+	// The port is not part of the key either (Hostname strips it).
+	withPort := normSellerDomain("https://a.example.com:8443/x")
+	if withPort != "a.example.com" {
+		t.Fatalf("key with port = %q, want a.example.com", withPort)
+	}
+	// Case folding keeps one bucket per host.
+	upper := normSellerDomain("https://A.Example.COM/x")
+	if upper != "a.example.com" {
+		t.Fatalf("uppercase key = %q, want a.example.com", upper)
 	}
 }

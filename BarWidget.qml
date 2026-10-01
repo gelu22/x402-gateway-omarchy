@@ -16,7 +16,7 @@ BarWidget {
     // Live state (updated by statusProc polling).
     property string state: Model.State.OFFLINE   // offline|active|paused|exhausted|error|logged_out
     property string blockText: ""
-    property string balanceText: Model.formatUsd(0, Model.Precision.SPEND)
+    property string balanceText: Model.formatUsdExact(0)
     property string iconGlyph: Model.ICON_WALLET // nf-fa-credit_card — payment identity of the widget
     readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
     readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
@@ -90,7 +90,7 @@ BarWidget {
                                                          : ("Status: " + Model.stateLabel(st.state))
                 // logged_out: clear stale balance/spend from previous session
                 if (st.state === Model.State.LOGGED_OUT) {
-                    root.balanceText = Model.formatUsd(0, Model.Precision.SPEND)
+                    root.balanceText = Model.formatUsdExact(0)
                     root.tooltipLine2 = ""
                 } else {
                     root.balanceText = st.balance_usd
@@ -150,7 +150,8 @@ BarWidget {
         // Status redundantly (39.3, a11y): icon + balance while active, the
         // state label otherwise — color alone is invisible to color-blind
         // users. Labels come from Model.stateLabel (no new strings in QML).
-        text: root.iconGlyph + "  " + (root.state === Model.State.ACTIVE ? Model.formatUsd(root.balanceText, Model.Precision.SPEND) + Model.USD_SYMBOL
+        // balanceText is already formatUsdExact from parseStatus — never re-round (NEW-P2-1).
+        text: root.iconGlyph + "  " + (root.state === Model.State.ACTIVE ? root.balanceText + Model.USD_SYMBOL
               : !root.firstPollDone ? "…"
               : Model.stateLabel(root.state))
         fontSize: Style.font.caption

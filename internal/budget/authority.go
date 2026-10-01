@@ -1,22 +1,21 @@
 // Package budget provides a single atomic authority over the daily payment
-// budget: Authorize/Commit/Release in one transaction (mutex + durable
-// persist). The daily cap and the per-domain sub-cap are both checked and
-// reserved atomically — concurrent requests to different targets can no longer
-// each pass against the same remaining budget. A write failure means no
-// authorization (fail-closed): a payment can never proceed uncounted.
+// budget: Authorize/Commit/Release/MarkSigned in one transaction (mutex +
+// durable persist). The daily cap and the per-domain sub-cap are both checked
+// and reserved atomically — concurrent requests cannot each pass against the
+// same remaining budget. A write failure means no authorization (fail-closed).
 //
-// Reservation semantics: Authorize is a durable charge. Commit moves the
-// amount from Reserved to Spent; Release removes it. A crash between
-// Authorize and Commit/Release leaves the amount reserved until the TTL
-// sweeps it (the budget gets tighter, never looser).
+// Reservation semantics: Authorize is a durable hold. MarkSigned records that
+// Payment-Signature is about to leave the process. Commit moves Reserved →
+// Spent; Release drops an **unsigned** hold only. Signed Release promotes to
+// Spent (never refund — NEW-P3-1 / 44.repass.2). TTL sweep: unsigned → delete;
+// signed → promote to Spent (local settlement reconciliation — HANCORE b / 44.4).
+// Day rollover: signed Reserved carry into new-day Spent; unsigned drop;
+// yesterday's committed Spent resets (44.4b). Missing JSON "signed" ⇒ false.
 package budget
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
@@ -33,12 +32,13 @@ const ReservationTTL = 15 * time.Minute
 
 const filePerms = 0o600
 
-// reservation is a pending charge: the amount, the domain it counts against
-// (for the sub-cap), and when it expires.
+// reservation is a pending charge: amount, domain (sub-cap), expiry, and
+// whether Payment-Signature has left (or is about to leave) the process.
 type reservation struct {
 	AmountMicro int64     `json:"amount_micro"`
 	Domain      string    `json:"domain"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	Signed      bool      `json:"signed"`
 }
 
 // state is the on-disk shape. Reserved is keyed by token.
@@ -49,10 +49,11 @@ type state struct {
 }
 
 // Authority is the single owner of the daily budget. All mutations go
-// through Authorize/Commit/Release under mu; persistence is tmp+rename.
+// through Authorize/Commit/Release/MarkSigned under mu; persistence is tmp+rename.
 type Authority struct {
 	stateDir string
 	now      func() time.Time
+	seq      uint64 // token uniqueness; guarded by mu (46.6, F10)
 	mu       sync.Mutex
 }
 
@@ -64,85 +65,18 @@ func NewAuthority(stateDir string, now func() time.Time) *Authority {
 	return &Authority{stateDir: stateDir, now: now}
 }
 
-func (a *Authority) path() string { return filepath.Join(a.stateDir, "budget.json") }
+func (a *Authority) today() string { return a.now().Format("2006-01-02") }
 
-// load reads today's state, sweeping expired reservations and rolling over
-// on day change. Corrupt file → fresh day (caps still enforced, fail-closed).
-func (a *Authority) load() (state, error) {
-	var st state
-	raw, err := os.ReadFile(a.path())
-	if os.IsNotExist(err) {
-		return state{Day: a.today(), Reserved: map[string]reservation{}}, nil
+// satAddSpent adds amount to spent, clamping at MaxInt64.
+func satAddSpent(spent, amount int64) int64 {
+	if spent > math.MaxInt64-amount {
+		return math.MaxInt64
 	}
-	if err != nil {
-		return st, fmt.Errorf("budget: read: %w", err)
-	}
-	if err := json.Unmarshal(raw, &st); err != nil {
-		return state{Day: a.today(), Reserved: map[string]reservation{}}, nil
-	}
-	today := a.today()
-	if st.Day != today {
-		st = state{Day: today, Reserved: map[string]reservation{}}
-	}
-	if st.Reserved == nil {
-		st.Reserved = map[string]reservation{}
-	}
-	// Sweep expired reservations (crash recovery: the budget gets looser
-	// only after the TTL, never before).
-	for k, r := range st.Reserved {
-		if a.now().After(r.ExpiresAt) {
-			delete(st.Reserved, k)
-		}
-	}
-	// Hand-edited negatives must never loosen the budget.
-	if st.Spent < 0 {
-		st.Spent = 0
-	}
-	return st, nil
-}
-
-// persist writes the state atomically (tmp+rename, 0600).
-func (a *Authority) persist(st state) error {
-	raw, err := json.Marshal(st)
-	if err != nil {
-		return err
-	}
-	tmp := a.path() + ".tmp"
-	if err := os.WriteFile(tmp, raw, filePerms); err != nil {
-		return fmt.Errorf("budget: write: %w", err)
-	}
-	return os.Rename(tmp, a.path())
-}
-
-// reservedTotal returns the sum of all active reservation amounts.
-func reservedTotal(st state) int64 {
-	var sum int64
-	for _, r := range st.Reserved {
-		if sum > math.MaxInt64-r.AmountMicro {
-			return math.MaxInt64
-		}
-		sum += r.AmountMicro
-	}
-	return sum
-}
-
-// reservedForDomain returns the sum of reservations for one domain.
-func reservedForDomain(st state, domain string) int64 {
-	var sum int64
-	for _, r := range st.Reserved {
-		if r.Domain != domain {
-			continue
-		}
-		if sum > math.MaxInt64-r.AmountMicro {
-			return math.MaxInt64
-		}
-		sum += r.AmountMicro
-	}
-	return sum
+	return spent + amount
 }
 
 // Authorize atomically checks the daily cap and the per-domain sub-cap,
-// then durably reserves the amount. Returns a token for Commit/Release.
+// then durably reserves the amount. Returns a token for Commit/Release/MarkSigned.
 // A persistence failure returns an error — the caller must NOT sign.
 // subcapMicro <= 0 disables the sub-cap for this call.
 func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain string) (string, error) {
@@ -165,7 +99,12 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 			return "", ErrBudget
 		}
 	}
-	token := fmt.Sprintf("r%d", a.now().UnixNano())
+	// Token = wall clock + monotonic sequence (46.6, F10). The clock alone is
+	// not unique: a coarse or stepped clock can return the same nanosecond
+	// twice, and a collision would overwrite the first reservation in the
+	// map — that charge would then never be counted.
+	a.seq++
+	token := fmt.Sprintf("r%d-%d", a.now().UnixNano(), a.seq)
 	st.Reserved[token] = reservation{
 		AmountMicro: amountMicro,
 		Domain:      domain,
@@ -175,6 +114,29 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 		return "", err // fail-closed: no persist, no authorization
 	}
 	return token, nil
+}
+
+// MarkSigned records that Payment-Signature is about to be sent. Fail-closed
+// persist; unknown token = no-op (idempotent after Commit). Renews ExpiresAt
+// so a slow seller response does not race the original Authorize TTL.
+func (a *Authority) MarkSigned(token string) error {
+	if token == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := a.load()
+	if err != nil {
+		return err
+	}
+	r, ok := st.Reserved[token]
+	if !ok {
+		return nil
+	}
+	r.Signed = true
+	r.ExpiresAt = a.now().Add(ReservationTTL)
+	st.Reserved[token] = r
+	return a.persist(st)
 }
 
 // Commit moves a reservation into Spent. Unknown token = no-op (idempotent:
@@ -191,15 +153,13 @@ func (a *Authority) Commit(token string) error {
 		return nil
 	}
 	delete(st.Reserved, token)
-	if st.Spent > math.MaxInt64-r.AmountMicro {
-		st.Spent = math.MaxInt64
-	} else {
-		st.Spent += r.AmountMicro
-	}
+	st.Spent = satAddSpent(st.Spent, r.AmountMicro)
 	return a.persist(st)
 }
 
-// Release removes a reservation without charging. Unknown token = no-op.
+// Release drops an unsigned reservation without charging. If the reservation
+// is Signed (Payment-Signature at risk), Release must NOT refund: promote to
+// Spent instead (NEW-P3-1 / 44.repass.2). Unknown token = no-op.
 func (a *Authority) Release(token string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -207,10 +167,14 @@ func (a *Authority) Release(token string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := st.Reserved[token]; !ok {
+	r, ok := st.Reserved[token]
+	if !ok {
 		return nil
 	}
 	delete(st.Reserved, token)
+	if r.Signed {
+		st.Spent = satAddSpent(st.Spent, r.AmountMicro)
+	}
 	return a.persist(st)
 }
 
@@ -224,5 +188,3 @@ func (a *Authority) Today() (int64, error) {
 	}
 	return st.Spent + reservedTotal(st), nil
 }
-
-func (a *Authority) today() string { return a.now().Format("2006-01-02") }

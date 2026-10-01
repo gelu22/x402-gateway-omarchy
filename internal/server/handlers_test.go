@@ -39,8 +39,12 @@ type mockMFAServer struct {
 	gateErr  error
 }
 
-func (m *mockMFAServer) MfaVerifiedWithin(ctx context.Context, d time.Duration) (bool, bool, error) {
-	return m.verified, m.enrolled, m.gateErr
+func (m *mockMFAServer) MfaVerifiedWithin(ctx context.Context, d time.Duration) (bool, bool, string, error) {
+	stamp := ""
+	if m.verified {
+		stamp = "2026-10-01T12:00:00Z"
+	}
+	return m.verified, m.enrolled, stamp, m.gateErr
 }
 
 func (m *mockMFAServer) MfaEnrollInit(ctx context.Context) (otpauthURL, secret, qrDataURI string, err error) {
@@ -865,6 +869,39 @@ func TestPolicyPostSubCapOutOfRangeIsBadRequest(t *testing.T) {
 			t.Fatalf("domain_sub_cap_percent=%s: status = %d, want 400", v, resp.StatusCode)
 		}
 		resp.Body.Close()
+	}
+}
+
+// 45.7: amount 0 without approve_seller is malformed (400 before MFA gate).
+func TestFetchOverrideAmountZeroWithoutApproveIsBadRequest(t *testing.T) {
+	gw := newTestGateway(t)
+	socketPath := startTestServer(t, gw, nil)
+	body := bytes.NewReader([]byte(`{"method":"GET","url":"https://example.com","override_amount_micro":0}`))
+	resp, err := testClient(socketPath).Post("http://localhost/fetch-override", "application/json", body)
+	if err != nil {
+		t.Fatalf("fetch-override: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// 45.7: amount 0 + approve_seller is valid input — reaches sudo gate (not 400).
+func TestFetchOverrideAmountZeroWithApproveReachesGate(t *testing.T) {
+	gw := newTestGateway(t)
+	socketPath := startTestServer(t, gw, nil) // nil MFA → 403 mfa_unavailable if gate runs
+	body := bytes.NewReader([]byte(`{"method":"GET","url":"https://example.com","override_amount_micro":0,"approve_seller":true}`))
+	resp, err := testClient(socketPath).Post("http://localhost/fetch-override", "application/json", body)
+	if err != nil {
+		t.Fatalf("fetch-override: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (passed validation into MFA gate)", resp.StatusCode)
+	}
+	if code := errorCodeOf(t, resp); code != "mfa_unavailable" {
+		t.Errorf("error = %q, want mfa_unavailable", code)
 	}
 }
 

@@ -19,14 +19,14 @@ func (r *SellerRegistry) loadLocked() (sellerState, error) {
 	st := sellerState{Day: today, Domains: map[string]*sellerEntry{}}
 	raw, err := os.ReadFile(r.path())
 	if os.IsNotExist(err) {
-		return st, nil
+		return mergeSellerMem(st, r.mem, today), nil
 	}
 	if err != nil {
 		return st, fmt.Errorf("sellers: read: %w", err)
 	}
 	var disk sellerState
 	if err := json.Unmarshal(raw, &disk); err != nil {
-		return st, nil
+		return mergeSellerMem(st, r.mem, today), nil
 	}
 	for domain, e := range disk.Domains {
 		if e == nil {
@@ -57,7 +57,7 @@ func (r *SellerRegistry) loadLocked() (sellerState, error) {
 			}
 		}
 	}
-	return st, nil
+	return mergeSellerMem(st, r.mem, today), nil
 }
 
 func isSellerDay(s string) bool {
@@ -131,7 +131,12 @@ func (r *SellerRegistry) Land(domain string) error {
 	if _, ok := st.Domains[domain]; !ok {
 		st.Domains[domain] = &sellerEntry{FirstSeen: r.today(), Day: r.today()}
 	}
-	return r.saveLocked(st)
+	// Persist first: a failed Land must not leave Known dirty (TOFU / 45.4).
+	if err := r.saveLocked(st); err != nil {
+		return err
+	}
+	r.mem = cloneSellerState(st)
+	return nil
 }
 
 func (r *SellerRegistry) Add(domain string, amountMicro int64) error {
@@ -158,5 +163,7 @@ func (r *SellerRegistry) Add(domain string, amountMicro int64) error {
 	} else {
 		e.DaySpendMicro += amountMicro
 	}
+	// Remember bump before persist so a write error cannot loosen Today (NEW-P1-1).
+	r.mem = cloneSellerState(st)
 	return r.saveLocked(st)
 }

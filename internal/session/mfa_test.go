@@ -209,7 +209,7 @@ func TestMfaVerifiedWithinFreshness(t *testing.T) {
 			}
 			m.SetNow(fixedNow(0))
 
-			verified, enrolled, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
+			verified, enrolled, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("want error, got nil")
@@ -238,7 +238,7 @@ func TestMfaVerifiedWithinCDPErrorFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute); err == nil {
+	if _, _, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute); err == nil {
 		t.Fatal("want error on CDP failure, got nil")
 	}
 }
@@ -251,7 +251,7 @@ func TestMfaVerifiedWithinNoSessionFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verified, enrolled, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
+	verified, enrolled, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
 	if err == nil {
 		t.Fatalf("logged out: verified=%v enrolled=%v, want error (fail closed)", verified, enrolled)
 	}
@@ -289,7 +289,7 @@ func TestMfaVerifiedWithinRejectsFutureTimestamps(t *testing.T) {
 				t.Fatal(err)
 			}
 			m.SetNow(fixedNow(0))
-			verified, enrolled, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
+			verified, enrolled, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute)
 			if err != nil {
 				t.Fatalf("MfaVerifiedWithin: %v", err)
 			}
@@ -318,7 +318,7 @@ func TestMfaVerifiedWithinAfterLogoutFailsClosed(t *testing.T) {
 	if err := m.Logout(); err != nil {
 		t.Fatalf("logout: %v", err)
 	}
-	if _, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute); err == nil {
+	if _, _, _, err := m.MfaVerifiedWithin(context.Background(), 2*time.Minute); err == nil {
 		t.Fatal("after logout: want error (fail closed), got nil")
 	}
 }

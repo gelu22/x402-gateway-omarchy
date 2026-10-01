@@ -125,7 +125,8 @@ func TestSettleRecordsOn2xx(t *testing.T) {
 	}
 }
 
-// 011.3: a payment rejected after signature records nothing and keeps the block.
+// 011.3/44.3: payment rejected after signature — OnPayment stays 0 (not 2xx),
+// but the budget Commits (Payment-Signature left the process; never Release).
 func TestRejectedAfterSignDoesNotRecord(t *testing.T) {
 	gw, payments := newSettleGateway(t)
 	gw.Blocks.Record(BlockRecord{Reason: "budget_exceeded"})
@@ -136,16 +137,16 @@ func TestRejectedAfterSignDoesNotRecord(t *testing.T) {
 	if got := payments.Load(); got != 0 {
 		t.Fatalf("OnPayment calls = %d, want 0 on rejection", got)
 	}
-	if spent := spendToday(t, gw); spent != 0 {
-		t.Fatalf("spend = %d, want 0 on rejection", spent)
+	if spent := spendToday(t, gw); spent != 10_000 {
+		t.Fatalf("spend = %d, want 10000 (Commit after sig, not Release)", spent)
 	}
 	if gw.Blocks.Current() == nil {
 		t.Fatal("block must survive a rejected payment")
 	}
 }
 
-// 013.1: a post-sign non-2xx is a fail-closed error, never a proxied success.
-// (Previously returned (result, nil): an agent saw "success" with a 500 body.)
+// 013.1/44.3: post-sign non-2xx is a fail-closed error (never proxied success),
+// and the budget Commits — Payment-Signature may already be redeemed.
 func TestPostSign5xxFailsClosed(t *testing.T) {
 	for _, status := range []int{http.StatusInternalServerError, http.StatusNotFound} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -164,8 +165,8 @@ func TestPostSign5xxFailsClosed(t *testing.T) {
 			if got := payments.Load(); got != 0 {
 				t.Fatalf("OnPayment calls = %d, want 0 on post-sign %d", got, status)
 			}
-			if spent := spendToday(t, gw); spent != 0 {
-				t.Fatalf("spend = %d, want 0 on post-sign %d", spent, status)
+			if spent := spendToday(t, gw); spent != 10_000 {
+				t.Fatalf("spend = %d, want 10000 on post-sign %d (Commit, not Release)", spent, status)
 			}
 			if gw.Blocks.Current() == nil {
 				t.Fatal("block must survive a post-sign failure")

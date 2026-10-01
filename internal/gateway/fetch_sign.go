@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"gateway/internal/cdp"
 	"gateway/internal/chains"
@@ -14,8 +13,13 @@ import (
 
 // signAndRetry signs the payment with the user's TWS key and retries the
 // request with the Payment-Signature header. budgetToken is the Authorize
-// reservation: Commit on 2xx settle, Release on any failure before settle.
-// content_too_large after settle does NOT Release (money already left).
+// reservation: Release only on failures BEFORE the header is sent; once
+// Payment-Signature leaves the process, every outcome (2xx, non-2xx, 402,
+// transport error, content_too_large) Commits — the seller may already have
+// redeemed (HANCORE a / 44.3). MarkSigned persists before send so a crash
+// before Commit still promotes via TTL (HANCORE b / 44.4).
+// Domain spend (Sellers.Add) runs on every post-sig Commit (NEW-P1-3 /
+// 44.repass.1). OnPayment stays 2xx-only (telemetry / balance invalidate).
 func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body []byte, headers map[string]string, pr *x402.PaymentRequired, req *x402.PaymentRequirements, overrideAmountMicro int64, key string, amountMicro int64, amountErr error, budgetToken string) (*FetchResult, error) {
 	release := func() {
 		if budgetToken == "" || g.Budget == nil {
@@ -24,6 +28,19 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 		if rerr := g.Budget.Release(budgetToken); rerr != nil && g.Logger != nil {
 			g.Logger.Error("budget release", "err", rerr)
 		}
+	}
+	commit := func() {
+		if budgetToken == "" || g.Budget == nil {
+			return
+		}
+		if cerr := g.Budget.Commit(budgetToken); cerr != nil && g.Logger != nil {
+			g.Logger.Error("budget commit", "err", cerr)
+		}
+	}
+	// commitPostSig: daily Commit + domain ledger (sub-cap). Never Release.
+	commitPostSig := func() {
+		commit()
+		g.chargeDomain(amountMicro, normSellerDomain(target))
 	}
 	if amountErr != nil {
 		release()
@@ -87,16 +104,27 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 		return nil, err
 	}
 
+	// Durable "sig is leaving" before HTTP (HANCORE b / 44.4). Fail-closed:
+	// if MarkSigned cannot persist, do not send Payment-Signature — Release.
+	if budgetToken != "" && g.Budget != nil {
+		if merr := g.Budget.MarkSigned(budgetToken); merr != nil {
+			release()
+			err := fmt.Errorf("%w: budget mark signed: %v", ErrUpstream, merr)
+			g.setLastFetchError("upstream_error", amountMicro, false, target, err.Error())
+			return nil, err
+		}
+	}
+
 	g.markSigned(key)
 	paid, err := g.doRequestWithHeader(ctx, method, target, body, headers, "Payment-Signature", headerValue)
 	if err != nil {
-		release()
+		commitPostSig() // header sent — never Release (seller may have redeemed)
 		g.setLastFetchError("upstream_error", 0, false, target, err.Error())
 		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	defer paid.Body.Close()
 	if paid.StatusCode == http.StatusPaymentRequired {
-		release()
+		commitPostSig() // header sent — never Release
 		g.setLastFetchError("upstream_error", 0, false, target, "payment rejected after signature")
 		return nil, fmt.Errorf("%w: payment rejected after signature", ErrUpstream)
 	}
@@ -108,18 +136,10 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 		if g.Blocks != nil {
 			g.Blocks.Clear()
 		}
-		// Commit before OnPayment: telemetry must not depend on an uncommitted charge.
-		if budgetToken != "" && g.Budget != nil {
-			if cerr := g.Budget.Commit(budgetToken); cerr != nil && g.Logger != nil {
-				g.Logger.Error("budget commit", "err", cerr)
-			}
-		}
+		// Commit + domain charge before OnPayment (telemetry must not own the ledger).
+		commitPostSig()
 		if g.OnPayment != nil {
-			domain := ""
-			if u, perr2 := url.Parse(target); perr2 == nil {
-				domain = u.Hostname()
-			}
-			g.OnPayment(amountMicro, domain)
+			g.OnPayment(amountMicro, normSellerDomain(target))
 		}
 		res, rerr := toResult(paid)
 		if rerr != nil {
@@ -130,7 +150,19 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 		LogPayment(g.Logger, amountMicro, target, "paid", overrideAmountMicro > 0)
 		return res, nil
 	}
-	release()
+	commitPostSig() // header sent — never Release on non-2xx
 	g.setLastFetchError("upstream_error", 0, false, target, fmt.Sprintf("seller status %d after signature", paid.StatusCode))
 	return nil, fmt.Errorf("%w: seller status %d after signature", ErrUpstream, paid.StatusCode)
+}
+
+// chargeDomain records per-seller day spend after a post-sig Commit so the
+// 20% domain sub-cap cannot be bypassed by redeem-then-non-2xx (NEW-P1-3).
+func (g *Gateway) chargeDomain(amountMicro int64, domain string) {
+	if g.Sellers == nil || domain == "" || amountMicro <= 0 {
+		return
+	}
+	if err := g.Sellers.Add(domain, amountMicro); err != nil && g.Logger != nil {
+		// Add keeps dirty memory (44.7.1); Error so ops see persist fail.
+		g.Logger.Error("sellers record", "err", err)
+	}
 }

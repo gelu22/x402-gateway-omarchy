@@ -146,18 +146,36 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestMustLoadDefaultsOnCorrupt(t *testing.T) {
-	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "policy.json"), []byte("{"), 0o600)
-	p := MustLoad(dir, nopLogger{})
+func TestLoadMissingFileUsesDefault(t *testing.T) {
+	p, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("missing file must Default, got %v", err)
+	}
 	if p.DailyCapMicro != DefaultDailyCapMicro {
-		t.Fatal("expected defaults")
+		t.Fatalf("want DefaultDailyCapMicro, got %d", p.DailyCapMicro)
 	}
 }
 
-type nopLogger struct{}
+func TestLoadCorruptFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "policy.json"), []byte("{"), 0o600)
+	p, err := Load(dir)
+	if err == nil {
+		t.Fatal("corrupt JSON must err")
+	}
+	if p != nil {
+		t.Fatalf("corrupt must not return a policy (got %+v)", p)
+	}
+}
 
-func (nopLogger) Warn(string, ...any) {}
+func TestLoadEmptyFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "policy.json"), []byte(""), 0o600)
+	p, err := Load(dir)
+	if err == nil || p != nil {
+		t.Fatalf("empty file must fail-closed, got p=%v err=%v", p, err)
+	}
+}
 
 func writePolicy(t *testing.T, dir, content string) {
 	t.Helper()
@@ -190,8 +208,8 @@ func TestLoadBuilderCodeStrippedWhenInvalid(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, basePolicyJSON(`"builder_code": "NOT VALID!!",`))
 	p, err := Load(dir)
-	if err == nil {
-		t.Fatal("invalid builder code must warn")
+	if err != nil {
+		t.Fatalf("invalid builder_code must not abort Load, got %v", err)
 	}
 	if p.BuilderCode != "" {
 		t.Fatalf("invalid code must be stripped, got %q", p.BuilderCode)
@@ -201,8 +219,8 @@ func TestLoadBuilderCodeStrippedWhenInvalid(t *testing.T) {
 	}
 }
 
-// Negative cap and out-of-range sub-cap fall back to defaults, never loosen.
-func TestTamperedValuesFallbackDefaults(t *testing.T) {
+// Negative cap / out-of-range sub-cap refuse Load — never Default success (45.2).
+func TestTamperedValuesFailClosed(t *testing.T) {
 	dir := t.TempDir()
 	raw := `{"daily_cap_micro_usdc":-1,"domain_sub_cap_percent":150,"allowed_networks":["eip155:84532"],"pinned_assets":{"eip155:84532":"` + usdc + `"}}`
 	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
@@ -212,8 +230,8 @@ func TestTamperedValuesFallbackDefaults(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error for invalid values, got nil")
 	}
-	if p.DailyCapMicro != DefaultDailyCapMicro || p.DomainSubCapPercent != DefaultDomainSubCapPercent {
-		t.Fatalf("tampered values must fall back to defaults, got %+v", p)
+	if p != nil {
+		t.Fatalf("invalid ranges must not return policy (no Default widen), got %+v", p)
 	}
 }
 
@@ -223,5 +241,83 @@ func TestCheckOverflowNoBypass(t *testing.T) {
 	huge := int64(9223372036854775800) // MaxInt64 - 7
 	if err := p.Check(validReq("8000"), huge); err == nil || err.Error() != "budget_exceeded" {
 		t.Fatalf("want budget_exceeded, got %v", err)
+	}
+}
+
+// 45.6: file may narrow chains SSOT, never extend (Load reject).
+func TestLoadRejectsExpandedNetwork(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"daily_cap_micro_usdc":100,"domain_sub_cap_percent":20,"allowed_networks":["eip155:1"],"pinned_assets":{"eip155:1":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"}}`
+	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err == nil || p != nil {
+		t.Fatalf("expanded network must fail Load, got p=%v err=%v", p, err)
+	}
+}
+
+func TestLoadRejectsWrongUSDCPin(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"daily_cap_micro_usdc":100,"domain_sub_cap_percent":20,"allowed_networks":["eip155:84532"],"pinned_assets":{"eip155:84532":"0xDeadBeef00000000000000000000000000000001"}}`
+	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err == nil || p != nil {
+		t.Fatalf("wrong USDC pin must fail Load, got p=%v err=%v", p, err)
+	}
+}
+
+func TestLoadRejectsMixedSupportedAndUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"daily_cap_micro_usdc":100,"domain_sub_cap_percent":20,"allowed_networks":["eip155:84532","eip155:1"],"pinned_assets":{"eip155:84532":"` + usdc + `","eip155:1":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"}}`
+	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err == nil || p != nil {
+		t.Fatalf("mixed list must fail closed (no half-apply), got p=%v err=%v", p, err)
+	}
+}
+
+func TestLoadNarrowsToOneSupportedNetwork(t *testing.T) {
+	dir := t.TempDir()
+	const baseUSDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+	raw := `{"daily_cap_micro_usdc":100,"domain_sub_cap_percent":20,"allowed_networks":["eip155:8453"],"pinned_assets":{"eip155:8453":"` + baseUSDC + `"}}`
+	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatalf("narrow to Base must Load, got %v", err)
+	}
+	if len(p.AllowedNetworks) != 1 || p.AllowedNetworks[0] != "eip155:8453" {
+		t.Fatalf("want only eip155:8453, got %v", p.AllowedNetworks)
+	}
+	sepolia := validReq("100")
+	if err := p.CheckStatic(sepolia); err == nil || err.Error() != "network_denied" {
+		t.Fatalf("Sepolia req after Base-only policy: want network_denied, got %v", err)
+	}
+	base := validReq("100")
+	base.Network = "eip155:8453"
+	base.Asset = baseUSDC
+	if err := p.CheckStatic(base); err != nil {
+		t.Fatalf("Base+official USDC must pass CheckStatic, got %v", err)
+	}
+	evil := validReq("100")
+	evil.Network = "eip155:1"
+	evil.Asset = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	if err := p.CheckStatic(evil); err == nil {
+		t.Fatal("CheckStatic must not allow eip155:1 on loaded policy")
+	}
+}
+
+func TestSaveRejectsExpandedPolicy(t *testing.T) {
+	p := Default()
+	p.AllowedNetworks = []string{"eip155:1"}
+	p.PinnedAssets = map[string]string{"eip155:1": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"}
+	if err := p.Save(t.TempDir()); err == nil {
+		t.Fatal("Save must reject expanded networks")
 	}
 }

@@ -38,8 +38,13 @@ func (f *fakeMFA) MfaVerifySubmit(ctx context.Context, code string) error {
 
 // MfaVerifiedWithin defaults to "not enrolled"; the sudo gate refuses that
 // state (mfa_not_enrolled), so tests of other paths set verified+enrolled.
-func (f *fakeMFA) MfaVerifiedWithin(ctx context.Context, d time.Duration) (bool, bool, error) {
-	return f.verified, f.enrolled, f.err
+// The stamp identifies the verification so the gate can spend it once (46.7).
+func (f *fakeMFA) MfaVerifiedWithin(ctx context.Context, d time.Duration) (bool, bool, string, error) {
+	stamp := ""
+	if f.verified {
+		stamp = "2026-10-01T12:00:00Z"
+	}
+	return f.verified, f.enrolled, stamp, f.err
 }
 
 func TestMfaEnrollInit(t *testing.T) {

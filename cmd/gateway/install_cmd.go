@@ -45,6 +45,13 @@ func runInstallCmd(args []string) int {
 	if xdg := os.Getenv("XDG_STATE_DIR"); xdg != "" {
 		opts.StateDir = filepath.Join(xdg, "x402-gateway")
 	}
+	// Same default as config.Load, so self-remove probes the lock the running
+	// daemon actually holds (46.10).
+	if sock := os.Getenv("GATEWAY_SOCKET_PATH"); sock != "" {
+		opts.SocketPath = sock
+	} else {
+		opts.SocketPath = filepath.Join(opts.StateDir, "gw.sock")
+	}
 	switch cmd {
 	case "install":
 		if opts.BundleDir == "" {

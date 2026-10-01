@@ -23,7 +23,7 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.15   # any released tag (see the Releases page)
+VERSION=v0.1.16   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -39,7 +39,7 @@ copy: it is not attestation-checked, and a moved tag would silently run a
 different installer.
 
 ```bash
-git clone --branch v0.1.15 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.16 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 less x402-gateway-omarchy/scripts/install.sh
 ```
 
@@ -56,9 +56,10 @@ signature check — offline, or at your own risk — prefix the run with
   when absent; your edits are kept)
 - state dir `~/.local/state/x402-gateway` (0700)
 
-Other modes: `install.sh verify` (check installation), `install.sh remove`
-(removes binary, plugin and scripts; keeps state), `install.sh purge --yes`
-(full wipe).
+Install always needs an explicit tag (`install.sh vX.Y.Z`) — there is no
+floating `latest` / bare `install` alias. Other modes: `install.sh verify`
+(check installation), `install.sh remove` (removes binary, plugin and scripts;
+keeps state), `install.sh purge --yes` (full wipe).
 
 ### Update
 
@@ -66,7 +67,7 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.15
+VERSION=v0.1.16
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -83,7 +84,7 @@ Check what changed in [CHANGELOG.md](CHANGELOG.md).
 Interactive deinstaller — one self-contained chain (download → verify → run):
 
 ```bash
-VERSION=v0.1.15
+VERSION=v0.1.16
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -98,7 +99,7 @@ plugin, the helper, the agent MCP entries, your state **including the audit
 log**, and the plugin config) — the same self-contained chain, with `--yes`:
 
 ```bash
-VERSION=v0.1.15
+VERSION=v0.1.16
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \

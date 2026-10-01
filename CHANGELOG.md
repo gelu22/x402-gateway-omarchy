@@ -4,6 +4,58 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.16] — 2026-10-01
+
+### Security
+
+- **Post-signature budget accounting**: once `Payment-Signature` is sent, the
+  reservation is finalised (`Commit`) and never released — the seller may already
+  have redeemed the authorisation, and a failed or non-2xx response does not make
+  the money come back. The signature is preceded by a durable "sig is leaving"
+  mark, so a crash after the header still keeps the charge.
+- **Settlement reconciliation**: a reservation carries a `Signed` phase. On
+  expiry, an unsigned hold is dropped and a **signed** one is promoted to spend.
+  Day rollover carries signed holds into the new day, and releasing a signed hold
+  promotes it rather than refunding it. A crash or a failed commit after payment
+  can no longer forget the charge.
+- **Midnight window**: a payment in flight across midnight keeps its hold
+  (`Authorize` → day rollover → `MarkSigned` → `Commit`), so a straddling
+  payment is still charged against the daily cap. Reservation tokens are also
+  unique under a coarse or stepped clock, which previously could overwrite one
+  hold with another.
+- **Single-use sudo MFA**: one verified code now authorises **one** spending
+  authority raise. Previously the same verification could lift the cap
+  repeatedly inside the two-minute window. Concurrent raises on one code leave
+  exactly one standing; a repeat is refused with `mfa_stale`. The verification
+  timestamp comes from the existing CDP response — no extra round trip.
+- **Policy pinned to the chain list**: loading the policy intersects networks and
+  assets with the canonical chain list, so an unknown network or a wrong USDC pin
+  is refused at load instead of at payment time.
+- **Approval contract**: an override amount of `0` is accepted only together with
+  seller approval (trust-on-first-use land + pay within the normal daily cap)
+  instead of failing after the MFA prompt, and `0` no longer implies an unlimited
+  cap. The HTTP and daemon sides now agree.
+- **Fail-closed policy start**: a corrupt or invalid policy file fails at start
+  instead of silently falling back to defaults. The installer no longer floats a
+  mutable "latest" ref, and landing a seller fails closed.
+- **Domain spend ledger**: per-domain spend is charged on every post-signature
+  commit, including non-2xx, and a failed write keeps the in-memory bump so the
+  per-seller share cannot loosen silently.
+
+### Audit
+
+An independent hostile read-only audit of the money path returned
+**NOT CLEAN — 0 P0, 1 P1, 6 P2, 2 P3**. All P1 and P2 findings from that audit
+are fixed in this release: the midnight reservation window, single-use sudo MFA,
+the security-class gate's coverage of the current ledger, partial-plugin rollback
+on a failed install, `self-remove` under a live daemon, and the per-host sub-cap
+boundary. The P3 items are documentation accuracy.
+
+Known, deliberately accepted boundaries are stated in `SECURITY.md` and
+`THREAT-MODEL.md`: the daily total, the domain ledger and the policy file are
+user-writable by the same user, and a per-host sub-cap is per hostname rather than
+per registrable domain.
+
 ## [0.1.15] — 2026-09-30
 
 ### Security

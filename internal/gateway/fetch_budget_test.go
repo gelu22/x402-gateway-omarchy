@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -160,5 +161,158 @@ func TestOnPaymentDoesNotCallSpendAdd(t *testing.T) {
 	}
 	if got := spendToday(t, gw); got != 10_000 {
 		t.Fatalf("Budget.Today = %d, want 10000 (Commit owns the ledger)", got)
+	}
+}
+
+// --- 44.3 HANCORE (a): post-sig outcomes Commit; pre-sig still Releases -----
+
+// TestPostSigSeller5xxCommitsBudget: Payment-Signature sent → seller 500 →
+// Budget.Today == amount (Commit), OnPayment == 0.
+func TestPostSigSeller5xxCommitsBudget(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	_, err := gw.Fetch(context.Background(), http.MethodGet,
+		sellerWith(t, http.StatusInternalServerError).URL+"/content", nil, nil)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("want ErrUpstream, got %v", err)
+	}
+	if payments.Load() != 0 {
+		t.Fatalf("OnPayment = %d, want 0", payments.Load())
+	}
+	if got := spendToday(t, gw); got != 10_000 {
+		t.Fatalf("budget = %d, want 10000 (Commit after sig)", got)
+	}
+}
+
+// TestPostSig402CommitsBudget: signed retry returns 402 → Commit, no OnPayment.
+func TestPostSig402CommitsBudget(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	_, err := gw.Fetch(context.Background(), http.MethodGet,
+		sellerWith(t, http.StatusPaymentRequired).URL+"/content", nil, nil)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("want ErrUpstream, got %v", err)
+	}
+	if payments.Load() != 0 {
+		t.Fatalf("OnPayment = %d, want 0", payments.Load())
+	}
+	if got := spendToday(t, gw); got != 10_000 {
+		t.Fatalf("budget = %d, want 10000 (Commit after sig)", got)
+	}
+}
+
+// TestPostSigTransportErrorCommitsBudget: connection drop after header → Commit.
+func TestPostSigTransportErrorCommitsBudget(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Payment-Signature") != "" {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("ResponseWriter is not a Hijacker")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Fatalf("hijack: %v", err)
+			}
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Payment-Required", paymentRequiredHeaderWith("10000", usdcBaseSepolia, "eip155:84532"))
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/content", nil, nil)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("want ErrUpstream on transport drop, got %v", err)
+	}
+	if payments.Load() != 0 {
+		t.Fatalf("OnPayment = %d, want 0", payments.Load())
+	}
+	if got := spendToday(t, gw); got != 10_000 {
+		t.Fatalf("budget = %d, want 10000 (Commit after sig transport err)", got)
+	}
+}
+
+// --- 44.repass.1 NEW-P1-3: domain spend on every post-sig Commit -------------
+
+func TestPostSig5xxChargesDomainSpend(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gw.Fetch(context.Background(), http.MethodGet,
+		sellerWith(t, http.StatusInternalServerError).URL+"/content", nil, nil)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("want ErrUpstream, got %v", err)
+	}
+	if payments.Load() != 0 {
+		t.Fatalf("OnPayment = %d, want 0 (telemetry stays 2xx-only)", payments.Load())
+	}
+	if got := spendToday(t, gw); got != 10_000 {
+		t.Fatalf("budget = %d, want 10000", got)
+	}
+	dom, err := gw.Sellers.Today("127.0.0.1")
+	if err != nil || dom != 10_000 {
+		t.Fatalf("domain spend = %d, want 10000 after post-sig 5xx (err %v)", dom, err)
+	}
+}
+
+func TestPostSig2xxChargesDomainOnce(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gw.Fetch(context.Background(), http.MethodGet,
+		sellerWith(t, http.StatusOK).URL+"/content", nil, nil)
+	if err != nil {
+		t.Fatalf("want success, got %v", err)
+	}
+	if payments.Load() != 1 {
+		t.Fatalf("OnPayment = %d, want 1", payments.Load())
+	}
+	dom, err := gw.Sellers.Today("127.0.0.1")
+	if err != nil || dom != 10_000 {
+		t.Fatalf("domain spend = %d, want 10000 once (no double) (err %v)", dom, err)
+	}
+}
+
+func TestPostSig5xxDomainSubCapTightens(t *testing.T) {
+	gw, _ := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	p := policy.Default()
+	p.DailyCapMicro = 100_000 // sub-cap 20_000
+	gw.SetPolicy(p)
+	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	// First signed payment asks 15k, seller 500 → Commit + domain charge.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Payment-Signature") != "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Payment-Required", paymentRequiredHeaderWith("15000", usdcBaseSepolia, "eip155:84532"))
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	t.Cleanup(srv.Close)
+	_, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/a", nil, nil)
+	if !errors.Is(err, ErrUpstream) {
+		t.Fatalf("first: want ErrUpstream, got %v", err)
+	}
+	dom, _ := gw.Sellers.Today("127.0.0.1")
+	if dom != 15_000 {
+		t.Fatalf("domain after first = %d, want 15000", dom)
+	}
+	// Second 10k would be 25k > 20k sub-cap → budget_exceeded before sign.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Payment-Required", paymentRequiredHeaderWith("10000", usdcBaseSepolia, "eip155:84532"))
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	t.Cleanup(srv2.Close)
+	_, err = gw.Fetch(context.Background(), http.MethodGet, srv2.URL+"/b", nil, nil)
+	var perr *PolicyError
+	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
+		t.Fatalf("want budget_exceeded (domain sub-cap after post-sig charge), got %v", err)
 	}
 }

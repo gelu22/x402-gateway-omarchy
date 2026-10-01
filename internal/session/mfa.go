@@ -146,31 +146,36 @@ const mfaClockSkew = time.Minute
 //
 // The check is deliberately uncached: MfaStatus serves the UI with a 5-minute
 // cache, which is useless as a freshness proof.
-func (m *Manager) MfaVerifiedWithin(ctx context.Context, d time.Duration) (verified bool, enrolled bool, err error) {
+func (m *Manager) MfaVerifiedWithin(ctx context.Context, d time.Duration) (verified bool, enrolled bool, stamp string, err error) {
 	m.mu.Lock()
 	signedIn := m.refreshToken != ""
 	m.mu.Unlock()
 	if !signedIn {
-		return false, false, errors.New("session: not signed in, cannot confirm MFA freshness")
+		return false, false, "", errors.New("session: not signed in, cannot confirm MFA freshness")
 	}
 	token, err := m.AccessToken()
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 	methods, err := m.client.GetMfaMethods(ctx, m.UserID(), token)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 	if !methods.Enrolled() {
-		return false, false, nil
+		return false, false, "", nil
 	}
 	at, err := time.Parse(time.RFC3339, methods.LastVerificationCompletedAt)
 	if err != nil {
-		return false, true, fmt.Errorf("session: mfa verification timestamp: %w", err)
+		return false, true, "", fmt.Errorf("session: mfa verification timestamp: %w", err)
 	}
 	m.mu.Lock()
 	now := m.now()
 	m.mu.Unlock()
 	age := now.Sub(at)
-	return age <= d && age >= -mfaClockSkew, true, nil
+	if age > d || age < -mfaClockSkew {
+		return false, true, "", nil
+	}
+	// Fresh: hand back the CDP stamp so the caller can spend this specific
+	// verification once (46.7). Returning it is not consuming it.
+	return true, true, methods.LastVerificationCompletedAt, nil
 }

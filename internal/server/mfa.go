@@ -17,8 +17,10 @@ type MFAAPI interface {
 	MfaVerifySubmit(ctx context.Context, code string) error
 	// MfaVerifiedWithin reports whether a CDP MFA verification completed within
 	// d; enrolled=false (MFA off, ADR D8) or no session means the sudo gate is
-	// inert, and an error means the caller must fail closed.
-	MfaVerifiedWithin(ctx context.Context, d time.Duration) (verified bool, enrolled bool, err error)
+	// inert, and an error means the caller must fail closed. stamp is the CDP
+	// LastVerificationCompletedAt value: it identifies WHICH verification this
+	// is, so the caller can spend it once (46.7). Empty when not verified.
+	MfaVerifiedWithin(ctx context.Context, d time.Duration) (verified bool, enrolled bool, stamp string, err error)
 }
 
 // mfaSudoWindow bounds how old a CDP verification may be for a mutation that
@@ -39,7 +41,7 @@ func (s *Server) requireSudoMFA(w http.ResponseWriter) bool {
 		writeErr(w, http.StatusForbidden, "mfa_unavailable", errMFANotWired)
 		return false
 	}
-	verified, enrolled, err := s.MFA.MfaVerifiedWithin(context.Background(), mfaSudoWindow)
+	verified, enrolled, stamp, err := s.MFA.MfaVerifiedWithin(context.Background(), mfaSudoWindow)
 	if err != nil {
 		writeErr(w, http.StatusForbidden, "mfa_unavailable", err)
 		return false
@@ -51,6 +53,19 @@ func (s *Server) requireSudoMFA(w http.ResponseWriter) bool {
 	}
 	if !verified {
 		writeErr(w, http.StatusForbidden, "mfa_stale", errors.New("mfa verification is older than allowed"))
+		return false
+	}
+	// A verification buys exactly one authority raise (46.7). Check and spend
+	// under one lock: two concurrent raises must not both pass on one code.
+	s.sudoMu.Lock()
+	replay := stamp != "" && stamp == s.sudoConsumed
+	if !replay {
+		s.sudoConsumed = stamp
+	}
+	s.sudoMu.Unlock()
+	if replay {
+		writeErr(w, http.StatusForbidden, "mfa_stale",
+			errors.New("this verification was already used to raise spending authority; confirm again"))
 		return false
 	}
 	return true

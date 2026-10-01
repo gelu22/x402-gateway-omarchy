@@ -90,6 +90,12 @@ type Server struct {
 	// MFA wait registry + result cache (30.2b), lazily created by mfaWait().
 	mfaMu sync.Mutex
 	mfa   *mfaWait
+
+	// sudoConsumed is the CDP verification stamp already spent on a spending
+	// authority raise (46.7). A verification is good for exactly one raise;
+	// without this, one code entry authorised N raises inside mfaSudoWindow.
+	sudoMu       sync.Mutex
+	sudoConsumed string
 }
 
 type PairingAPI interface {

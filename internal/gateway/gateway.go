@@ -144,12 +144,13 @@ func (g *Gateway) Fetch(ctx context.Context, method, target string, body []byte,
 	return g.doFetch(ctx, method, target, body, headers, 0, false)
 }
 
-// FetchWithOverride performs a user-approved over-budget fetch, bypassing
-// the daily-budget check. overrideAmountMicro must be > 0 and >= the amount
-// requested by the endpoint (sanity: approval covers the charge).
+// FetchWithOverride performs a user-approved fetch that may raise authority:
+// overrideAmountMicro > 0 lifts the daily cap (approval ceiling); amount 0 is
+// allowed only with approveSeller (TOFU land / pay within normal daily cap —
+// 45.7). The ceiling must cover the seller amount when > 0 (price_changed).
 func (g *Gateway) FetchWithOverride(ctx context.Context, method, target string, body []byte, headers map[string]string, overrideAmountMicro int64, approveSeller bool) (*FetchResult, error) {
-	if overrideAmountMicro <= 0 {
-		return nil, fmt.Errorf("override amount must be positive")
+	if overrideAmountMicro < 0 || (overrideAmountMicro == 0 && !approveSeller) {
+		return nil, fmt.Errorf("override amount must be positive (or approve_seller with 0)")
 	}
 	return g.doFetch(ctx, method, target, body, headers, overrideAmountMicro, approveSeller)
 }

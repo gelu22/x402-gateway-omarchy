@@ -1,5 +1,4 @@
-// fetch.go — doFetch orchestration + evaluateSeller.
-// The signing/retry section is in fetch_sign.go, first-request parsing in fetch_parse.go.
+// fetch.go — doFetch + evaluateSeller (sign in fetch_sign.go, parse in fetch_parse.go).
 package gateway
 
 import (
@@ -117,9 +116,7 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 	return g.signAndRetry(ctx, method, target, body, headers, pr, req, overrideAmountMicro, key, amountMicro, amountErr, token)
 }
 
-// authorizePayment reserves amountMicro against the daily cap and domain
-// sub-cap. Override skips the daily-cap ceiling (cap=∞) but still reserves;
-// approveSeller disables the domain sub-cap (explicit TOFU approval).
+// authorizePayment: daily/domain caps; override lifts daily, approveSeller lifts sub-cap.
 func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target string, pol *policy.Policy, overrideAmountMicro int64, approveSeller bool) (string, error) {
 	if amountErr != nil || amountMicro <= 0 {
 		return "", nil
@@ -169,8 +166,7 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 	return token, nil
 }
 
-// evaluateSeller checks seller trust (013.2, TOFU). Domain sub-cap lives in
-// authorizePayment. Nil means OK.
+// evaluateSeller: seller trust (013.2 TOFU). Nil = OK. Domain sub-cap in authorizePayment.
 func (g *Gateway) evaluateSeller(target string, approveSeller bool, req *x402.PaymentRequirements) error {
 	if g.Sellers == nil {
 		return nil
@@ -181,8 +177,12 @@ func (g *Gateway) evaluateSeller(target string, approveSeller bool, req *x402.Pa
 		return &PolicyError{Code: "unknown_seller", AmountMicro: 0, CanOverride: true}
 	}
 	if approveSeller {
-		if err := g.Sellers.Land(domain); err != nil && g.Logger != nil {
-			g.Logger.Warn("sellers land", "domain", domain, "err", err)
+		if err := g.Sellers.Land(domain); err != nil {
+			if g.Logger != nil {
+				g.Logger.Error("sellers land", "domain", domain, "err", err)
+			}
+			g.setLastFetchError("upstream_error", 0, false, target, err.Error())
+			return &PolicyError{Code: "upstream_error", CanOverride: false}
 		}
 		return nil
 	}

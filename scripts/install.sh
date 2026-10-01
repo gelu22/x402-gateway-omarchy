@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gateway installer: download+verify release, then `gateway install` (Go) mutates
 # the filesystem (42.3). Bash never writes under ~/.local/bin or the plugin dir.
-# Usage: install.sh [vX.Y.Z|verify|remove|purge [--yes]]
+# Usage: install.sh <vX.Y.Z|verify|remove|purge [--yes]>  (explicit tag; no latest)
 # Env: GATEWAY_RELEASE_BASE, GATEWAY_ALLOW_UNVERIFIED=1, GATEWAY_FORCE=1
 set -euo pipefail
 
@@ -126,7 +126,21 @@ verify_provenance() {  # $1=file
 
 # -- lifecycle mutations live in Go (42.3): bash only downloads + verifies -----
 lock_state() {
-  mkdir -p "$STATE_DIR"
+  # Refuse a symlinked state dir first: mkdir -p and chmod both follow the link
+  # and would change a directory this installer does not own (reguła 7).
+  if [ -L "$STATE_DIR" ]; then
+    echo "  ✗ $STATE_DIR is a symlink — refusing to touch it." >&2
+    exit 1
+  fi
+  # -m 0700 only applies when the dir is created; the explicit chmod corrects a
+  # directory an older installer left at 0755, which nothing else fixes until the
+  # daemon starts (46.13). A chmod failure is a warning, not a stop: on a
+  # filesystem without POSIX permissions the files are still 0600 and the socket
+  # is chmod'd to 0600 when the daemon starts (config.go, socket.go:103,111). A
+  # genuinely unwritable dir fails on the lock below under `set -e`.
+  mkdir -p -m 0700 "$STATE_DIR"
+  chmod 0700 "$STATE_DIR" 2>/dev/null || \
+    echo "  ⚠ could not tighten perms on $STATE_DIR (filesystem without POSIX permissions?)" >&2
   exec 9>"$STATE_DIR/.lock"
   if ! flock -n 9; then
     echo "  ✗ another install/remove/purge is already running." >&2
@@ -228,7 +242,8 @@ do_purge() {
   echo "0 leftovers — the gateway is gone."
 }
 
-case "${1:-install}" in
+# Explicit tag required — never resolve a floating 'latest' pointer (45.3 / M9).
+case "${1:-}" in
   verify)
     command -v gateway >/dev/null && echo "gateway installed: $(gateway --version 2>/dev/null || echo unknown)" \
       || { echo "gateway not found in PATH"; exit 1; }
@@ -254,14 +269,6 @@ case "${1:-install}" in
     lock_state
     do_purge
     ;;
-  install|latest)
-    VERSION="$(fetch "https://api.github.com/repos/$REPO/releases/latest" | grep tag_name | cut -d'"' -f4)"
-    case "$VERSION" in
-      v[0-9]*.[0-9]*.[0-9]*) ;;
-      *) echo "unexpected release tag from the API: '$VERSION'" >&2; exit 1 ;;
-    esac
-    do_install "$VERSION"
-    ;;
   v*)
     case "$1" in
       v[0-9]*.[0-9]*.[0-9]*) ;;
@@ -270,5 +277,7 @@ case "${1:-install}" in
     do_install "$1"
     ;;
   *)
-    echo "usage: install.sh [vX.Y.Z|verify|remove|purge [--yes]]"; exit 1;;
+    echo "usage: install.sh <vX.Y.Z|verify|remove|purge [--yes]>" >&2
+    echo "  install requires an explicit release tag (floating latest is rejected)" >&2
+    exit 1;;
 esac

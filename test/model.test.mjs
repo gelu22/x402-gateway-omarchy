@@ -212,8 +212,8 @@ describe("Model.js", () => {
       const result = Model.parseStatus(raw);
       assert.strictEqual(result.ok, true);
       assert.strictEqual(result.state, "active");
-      assert.strictEqual(result.balance_usd, "19.990");
-      assert.strictEqual(result.spend_today, "1.230");
+      assert.strictEqual(result.balance_usd, "19.99");
+      assert.strictEqual(result.spend_today, "1.23");
       assert.strictEqual(result.budget_daily, "5.00");
       assert.strictEqual(result.address, "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F");
       assert.strictEqual(result.payment_network, "eip155:84532");
@@ -261,8 +261,8 @@ describe("Model.js", () => {
       const result = Model.parseStatus(raw);
       assert.strictEqual(result.ok, true);
       assert.strictEqual(result.state, "logged_out");
-      assert.strictEqual(result.balance_usd, "0.000");
-      assert.strictEqual(result.spend_today, "0.000");
+      assert.strictEqual(result.balance_usd, "0.00");
+      assert.strictEqual(result.spend_today, "0.00");
       assert.strictEqual(result.budget_daily, "0.00");
     });
 
@@ -270,7 +270,7 @@ describe("Model.js", () => {
       const result = Model.parseStatus("not json");
       assert.strictEqual(result.ok, false);
       assert.strictEqual(result.state, "offline");
-      assert.strictEqual(result.balance_usd, "0.000");
+      assert.strictEqual(result.balance_usd, "0.00");
     });
   });
 
@@ -832,6 +832,22 @@ describe("Model.js", () => {
       // Idempotent: re-formatting its own output must not lose precision.
       assert.strictEqual(Model.formatUsdExact(Model.formatUsdExact(0.002)), "0.002");
       assert.strictEqual(Model.formatUsdcExact(0.002), "0.002 USDC");
+    });
+
+    it("NEW-P2-1: parseStatus uses formatUsdExact (micro spend/balance stay visible)", () => {
+      // Regression: formatUsd(..., SPEND=3) turned 0.0004 into "0.000".
+      const st = Model.parseStatus(JSON.stringify({
+        wallet_address: "0xabc",
+        spend_today_usdc: 0.0004,
+        budget_daily_usdc: 5,
+        wallet_balance_usdc: 0.0006,
+      }));
+      assert.strictEqual(st.ok, true);
+      assert.strictEqual(st.spend_today, "0.0004");
+      assert.strictEqual(st.balance_usd, "0.0006");
+      assert.strictEqual(st.budget_daily, "5.00");
+      // Fixed-decimal path must NOT be what parseStatus uses for these fields.
+      assert.notStrictEqual(st.spend_today, Model.formatUsd(0.0004, Model.Precision.SPEND));
     });
 
     it("clipboardCommand neutralises every hostile payload", () => {

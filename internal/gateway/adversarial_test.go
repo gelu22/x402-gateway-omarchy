@@ -58,7 +58,7 @@ func assertNoSpend(t *testing.T, gw *Gateway) {
 	}
 }
 
-// Double 402 after signing: exactly one signature, zero spend, one audit line.
+// Double 402 after signing: one signature, budget Commits (44.3), one audit line.
 func TestAdversarialDouble402AfterSign(t *testing.T) {
 	gw, _ := newSettleGateway(t)
 	var buf bytes.Buffer
@@ -70,7 +70,9 @@ func TestAdversarialDouble402AfterSign(t *testing.T) {
 		t.Fatalf("want ErrUpstream on double 402, got %v", err)
 	}
 	assertSigns(t, gw, 1)
-	assertNoSpend(t, gw)
+	if spent := spendToday(t, gw); spent != 20_000 {
+		t.Fatalf("spend = %d, want 20000 (Commit after Payment-Signature)", spent)
+	}
 	lines, _ := decodeAuditLines(t, buf.String())
 	if len(lines) != 1 {
 		t.Fatalf("want exactly 1 audit line, got %d", len(lines))
@@ -94,7 +96,10 @@ func TestAdversarialRetryTimeout(t *testing.T) {
 		t.Fatalf("want ErrUpstream on timeout, got %v", err)
 	}
 	assertSigns(t, gw, 1)
-	assertNoSpend(t, gw)
+	// Timeout after the signed request left: Commit, never Release (44.3).
+	if spent := spendToday(t, gw); spent != 20_000 {
+		t.Fatalf("spend = %d, want 20000 after post-sig timeout", spent)
+	}
 }
 
 // Malformed 402s must fail before signing with zero spend.

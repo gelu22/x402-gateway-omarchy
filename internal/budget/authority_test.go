@@ -157,23 +157,23 @@ func TestCommitReleaseIdempotent(t *testing.T) {
 	}
 }
 
-// TestTTLSweepsExpiredReservations proves a reservation older than the TTL
-// is freed on the next load (crash recovery).
-func TestTTLSweepsExpiredReservations(t *testing.T) {
+// TestTTLUnsignedDrops proves an unsigned reservation older than the TTL
+// is freed on the next load (MFA abandon / crash-before-sig).
+func TestTTLUnsignedDrops(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	token, _ := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
-	_ = token // token not needed; we only test that the reservation holds
+	if _, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com"); err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
 	total, _ := a.Today()
 	if total != 1_000_000 {
 		t.Fatalf("want 1000000, got %d", total)
 	}
-	// Advance past the TTL.
 	a2 := NewAuthority(dir, func() time.Time { return now.Add(ReservationTTL + time.Minute) })
 	total2, _ := a2.Today()
 	if total2 != 0 {
-		t.Fatalf("want 0 after TTL sweep, got %d", total2)
+		t.Fatalf("want 0 after unsigned TTL sweep, got %d", total2)
 	}
 }
 
@@ -194,6 +194,13 @@ func TestDayRolloverResetsBudget(t *testing.T) {
 
 // TestCorruptFileFailsClosed proves a corrupt budget.json is treated as a
 // fresh day (caps still enforced, not zeroed to unlimited).
+//
+// Precise scope, because the name overstates it (46.12): what is proven is
+// that Authorize still enforces the cap after a corrupt file, i.e. the cap is
+// not disabled. What is NOT proven, and is a known open residual, is that the
+// previous Spent survives — it does not: load() returns a fresh day and the
+// earlier total is lost silently. The test name predates that distinction; see
+// THREAT-MODEL T3 (residual row) and knowledge/sessions/44.2-findings-checkpoint.md.
 func TestCorruptFileFailsClosed(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "budget.json"), []byte("garbage"), 0o600); err != nil {

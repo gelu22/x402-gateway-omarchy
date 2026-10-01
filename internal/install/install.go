@@ -24,8 +24,11 @@ type Options struct {
 	PluginDir string
 	ConfigDir string
 	PluginID  string
-	Force     bool
-	Logger    *slog.Logger
+	// SocketPath is the daemon socket; SelfRemove refuses while a live daemon
+	// still holds <SocketPath>.lock (46.9). Empty disables the check.
+	SocketPath string
+	Force      bool
+	Logger     *slog.Logger
 }
 
 // Install places the binary, helpers, plugin and config seed. On mid-flight
@@ -134,6 +137,17 @@ func installPlugin(opts Options) error {
 	if err != nil {
 		return err
 	}
+	// Track what we actually wrote, so a failure part-way through cannot leave
+	// a half-copied plugin behind: a manifest with missing QML files is a panel
+	// that never opens (46.9, F4). Only successful writes are recorded, so the
+	// cleanup can never touch a file that was not ours.
+	var written []string
+	cleanup := func(cause error) error {
+		for i := len(written) - 1; i >= 0; i-- {
+			_ = os.Remove(filepath.Join(opts.PluginDir, written[i]))
+		}
+		return cause
+	}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() {
@@ -146,8 +160,9 @@ func installPlugin(opts Options) error {
 		src := filepath.Join(srcDir, name)
 		mode := uint32(0o644)
 		if err := installFileAtomically(src, opts.PluginDir, name, mode); err != nil {
-			return err
+			return cleanup(err)
 		}
+		written = append(written, name)
 	}
 	return nil
 }

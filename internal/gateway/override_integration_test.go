@@ -73,19 +73,73 @@ func TestOverrideFlowBudgetExceededThenApprovedPays(t *testing.T) {
 	}
 }
 
-// TestFetchWithOverrideRejectsNonPositiveAmount pins the sanity guard: an
-// approval must name a positive ceiling before any network call.
+// TestFetchWithOverrideRejectsNonPositiveAmount pins the sanity guard (45.7):
+// amount 0 without approveSeller, and any negative, fail before network I/O.
 func TestFetchWithOverrideRejectsNonPositiveAmount(t *testing.T) {
 	gw, _ := newSettleGateway(t)
 	url := sellerWith(t, http.StatusOK).URL + "/content"
 
 	for _, amount := range []int64{0, -1} {
 		if _, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, amount, false); err == nil {
-			t.Fatalf("override %d: want error, got nil", amount)
+			t.Fatalf("override %d without approve: want error, got nil", amount)
 		}
+	}
+	if _, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, -1, true); err == nil {
+		t.Fatal("negative amount with approve must err")
 	}
 	if got := gw.Signer.(*settleSigner).signCalls.Load(); got != 0 {
 		t.Fatalf("signed %d times on invalid override, want 0", got)
+	}
+}
+
+// TestApproveSellerAmountZeroPaysWithinCap (45.7): amount 0 + approve lands and
+// pays under the normal daily cap (no MaxInt64 lift).
+func TestApproveSellerAmountZeroPaysWithinCap(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	url := sellerAsking(t, "10000", http.StatusOK).URL + "/content"
+
+	if _, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, 0, true); err != nil {
+		t.Fatalf("amount0+approve within cap: %v", err)
+	}
+	if payments.Load() != 1 {
+		t.Fatalf("payments = %d, want 1", payments.Load())
+	}
+	known, err := gw.Sellers.Known("127.0.0.1")
+	if err != nil || !known {
+		t.Fatalf("seller must be landed, known=%v err=%v", known, err)
+	}
+	if got := spendToday(t, gw); got != 10_000 {
+		t.Fatalf("spend = %d, want 10000 (normal Authorize, not skipped)", got)
+	}
+}
+
+// TestApproveSellerAmountZeroRespectsDailyCap (45.7): amount 0 must NOT lift
+// the daily cap — over-budget → budget_exceeded, zero Sign.
+func TestApproveSellerAmountZeroRespectsDailyCap(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	p := policy.Default()
+	p.DailyCapMicro = 5_000
+	gw.SetPolicy(p)
+	url := sellerAsking(t, "10000", http.StatusOK).URL + "/content"
+
+	_, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, 0, true)
+	var perr *PolicyError
+	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
+		t.Fatalf("want budget_exceeded (no MaxInt64 lift), got %v", err)
+	}
+	if !perr.CanOverride {
+		t.Fatal("budget_exceeded must remain overridable")
+	}
+	if payments.Load() != 0 {
+		t.Fatalf("payments = %d, want 0", payments.Load())
+	}
+	if got := gw.Signer.(*settleSigner).signCalls.Load(); got != 0 {
+		t.Fatalf("signed %d times over cap, want 0", got)
+	}
+	if known, _ := gw.Sellers.Known("127.0.0.1"); !known {
+		t.Fatal("Land runs before Authorize — seller should be known after approve attempt")
 	}
 }
 
