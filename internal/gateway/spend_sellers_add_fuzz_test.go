@@ -6,10 +6,12 @@ import (
 	"testing"
 )
 
-// FuzzSpendSellersAdd validates monotonicity and saturation of Add operations
-// in both spend.Tracker and SellerRegistry.Add — amounts never wrap to
-// negative or below their pre-add value (016.4, 016.6b).
-func FuzzSpendSellersAdd(f *testing.F) {
+// FuzzSpendAdd validates monotonicity and saturation of spend.Tracker.Add —
+// amounts never wrap to negative or below their pre-add value (016.4, 016.6b).
+// The SellerRegistry half moved to internal/budget with SpentByDomain (47.1),
+// where the per-domain total is decided; the saturation property is pinned by
+// TestHandEditedNegativeDomainTotalIsClamped there.
+func FuzzSpendAdd(f *testing.F) {
 	f.Add(int64(1))
 	f.Add(int64(1000000))
 	f.Add(int64(math.MaxInt64 - 1))
@@ -73,49 +75,5 @@ func FuzzSpendSellersAdd(f *testing.F) {
 			}
 		}
 
-		// --- SellerRegistry.Add ---
-		sr := NewSellerRegistry(dir)
-
-		// First Add for a domain.
-		err = sr.Add("test.example.com", amount)
-		if amount <= 0 {
-			if err == nil {
-				t.Fatalf("SellerRegistry.Add(0) returned nil error")
-			}
-			return
-		}
-		if err != nil {
-			t.Fatalf("SellerRegistry.Add(%d) failed: %v", amount, err)
-		}
-
-		// Read back via a minimal load to check the entry.
-		st, err := sr.load()
-		if err != nil {
-			t.Fatalf("load after Add(%d): %v", amount, err)
-		}
-		e, ok := st.Domains["test.example.com"]
-		if !ok {
-			t.Fatalf("Domain 'test.example.com' missing after Add(%d)", amount)
-		}
-		if e.DaySpendMicro != amount {
-			t.Fatalf("Seller spend after first Add(%d) = %d, want %d", amount, e.DaySpendMicro, amount)
-		}
-
-		// Second Add — monotonicity.
-		if err := sr.Add("test.example.com", amount); err != nil {
-			t.Fatalf("SellerRegistry.Add(%d) second time failed: %v", amount, err)
-		}
-		st2, err := sr.load()
-		if err != nil {
-			t.Fatalf("load after second Add(%d): %v", amount, err)
-		}
-		e2 := st2.Domains["test.example.com"]
-		if e2.DaySpendMicro < e.DaySpendMicro {
-			t.Fatalf("Seller monotonicity violated: spend went from %d to %d", e.DaySpendMicro, e2.DaySpendMicro)
-		}
-		// Saturate check same as spend.
-		if amount == math.MaxInt64 && e2.DaySpendMicro != math.MaxInt64 {
-			t.Fatalf("Seller saturate failed: expected MaxInt64, got %d", e2.DaySpendMicro)
-		}
 	})
 }

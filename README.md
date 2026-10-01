@@ -23,7 +23,7 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.16   # any released tag (see the Releases page)
+VERSION=v0.1.17   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -39,7 +39,7 @@ copy: it is not attestation-checked, and a moved tag would silently run a
 different installer.
 
 ```bash
-git clone --branch v0.1.16 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.17 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 less x402-gateway-omarchy/scripts/install.sh
 ```
 
@@ -67,7 +67,7 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.16
+VERSION=v0.1.17
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -84,7 +84,7 @@ Check what changed in [CHANGELOG.md](CHANGELOG.md).
 Interactive deinstaller — one self-contained chain (download → verify → run):
 
 ```bash
-VERSION=v0.1.16
+VERSION=v0.1.17
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -99,7 +99,7 @@ plugin, the helper, the agent MCP entries, your state **including the audit
 log**, and the plugin config) — the same self-contained chain, with `--yes`:
 
 ```bash
-VERSION=v0.1.16
+VERSION=v0.1.17
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -226,7 +226,7 @@ ceiling is not, so tampering with that file cannot lift it.
 ## Supported payment rail
 
 What the gateway will sign for — and what it will not. This is a product
-contract, not a preference; see ADR-001 **D10**.
+contract, not a preference.
 
 **What it accepts (all must hold):**
 
@@ -246,7 +246,7 @@ budget) → sign (CDP TEE, EIP-3009) → retry with Payment-Signature → conten
 **Out of scope (by design):** any non-`exact` scheme and any non-EVM rail
 (e.g. Nano/XNO). The seller advertises the rail; a client cannot choose it. A
 different rail family needs its own scheme, facilitator and trust model — a
-companion project, not a config change. See ADR-001 D10.
+companion project, not a config change.
 
 ## MFA TOTP (optional, recommended)
 

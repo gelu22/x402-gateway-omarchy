@@ -133,27 +133,23 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 	domain := normSellerDomain(target)
 	if approveSeller {
 		subcap = 0
-	} else if subcap > 0 && g.Sellers != nil && domain != "" {
-		// Sellers holds sequential domain spend; Reserved covers concurrency.
-		daySpend, err := g.Sellers.Today(domain)
-		if err != nil {
-			g.setLastFetchError("upstream_error", amountMicro, false, target, err.Error())
-			return "", err
-		}
-		if daySpend < 0 {
-			daySpend = 0
-		}
-		rem := subcap - daySpend
-		if rem <= 0 {
-			g.recordBlock("budget_exceeded", strconv.FormatInt(amountMicro, 10), target)
-			g.setLastFetchError("budget_exceeded", amountMicro, true, target, "budget_exceeded")
-			LogPayment(g.Logger, amountMicro, target, "failed:budget_exceeded", overrideAmountMicro > 0)
-			return "", &PolicyError{Code: "budget_exceeded", AmountMicro: amountMicro, CanOverride: true}
-		}
-		subcap = rem
+	} else if subcap > 0 && domain == "" {
+		g.setLastFetchError("unknown_seller", 0, true, target, "unknown_seller")
+		return "", &PolicyError{Code: "unknown_seller", AmountMicro: 0, CanOverride: true}
 	}
+	// The per-domain cap is passed whole: the authority decides it from its own
+	// committed plus in-flight totals, in one transaction. Subtracting a balance
+	// read from the Sellers registry here was check-then-act — a payment settled
+	// in between was in neither store's view of the domain, so two ordinary
+	// concurrent requests could exceed the cap (47.1).
 	token, err := g.Budget.Authorize(amountMicro, capMicro, subcap, domain)
 	if err != nil {
+		if errors.Is(err, budget.ErrSubCap) {
+			g.recordBlock("domain_cap_exceeded", strconv.FormatInt(amountMicro, 10), target)
+			g.setLastFetchError("domain_cap_exceeded", amountMicro, true, target, err.Error())
+			LogPayment(g.Logger, amountMicro, target, "failed:domain_cap_exceeded", overrideAmountMicro > 0)
+			return "", &PolicyError{Code: "domain_cap_exceeded", AmountMicro: amountMicro, CanOverride: true}
+		}
 		if errors.Is(err, budget.ErrBudget) {
 			g.recordBlock("budget_exceeded", strconv.FormatInt(amountMicro, 10), target)
 			g.setLastFetchError("budget_exceeded", amountMicro, true, target, "budget_exceeded")

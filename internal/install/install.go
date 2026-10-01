@@ -111,8 +111,10 @@ func Install(opts Options) error {
 			return rollback(err)
 		}
 	} else {
-		fmt.Printf("  ⚠ no ~/.config/omarchy — skipping QML plugin (manual: copy plugin/omarchy/ to ~/.config/omarchy/plugins/%s)\n", opts.PluginID)
-		fmt.Println("  ⚠ no ~/.config/omarchy — skipping plugin config seed")
+		if opts.Logger != nil {
+			opts.Logger.Warn("install: no ~/.config/omarchy — skipping QML plugin and config seed",
+				"plugin_dir", opts.PluginDir)
+		}
 	}
 	return nil
 }

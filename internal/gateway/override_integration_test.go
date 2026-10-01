@@ -207,8 +207,8 @@ func TestOverrideBypassesDomainSubCap(t *testing.T) {
 
 	_, err := gw.FetchWithOverride(context.Background(), http.MethodGet, url, nil, nil, 60_000, false)
 	var perr *PolicyError
-	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
-		t.Fatalf("want budget_exceeded (domain sub-cap via Authorize), got %v", err)
+	if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
+		t.Fatalf("want domain_cap_exceeded (domain cap denied atomically by Authorize, 47.1), got %v", err)
 	}
 	if payments.Load() != 0 {
 		t.Fatalf("OnPayment = %d over sub-cap, want 0", payments.Load())

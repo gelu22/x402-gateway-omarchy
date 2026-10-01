@@ -9,6 +9,11 @@ import (
 	"gateway/internal/cdp"
 )
 
+// tokenRefreshMargin is how close to expiry the access token may be before a
+// refresh is forced: refresh when now+margin >= expiry, so a signing request
+// never starts with a token that dies mid-flight (the margin covers the CDP RTT).
+const tokenRefreshMargin = time.Minute
+
 // InitPairing starts the email OTP flow (wizard step 1).
 func (m *Manager) InitPairing(ctx context.Context, email string) (flowID, message string, err error) {
 	return m.client.InitiateEmailOTP(ctx, email)
@@ -113,7 +118,7 @@ func (m *Manager) ensureTWSLocked(ctx context.Context) (*cdp.WalletSecret, error
 	if !m.twsLimitedUntil.IsZero() && m.now().Before(m.twsLimitedUntil) {
 		return nil, fmt.Errorf("session: tws limited until %s: %w", m.twsLimitedUntil.Format(time.RFC3339), ErrTWSLimit)
 	}
-	if m.accessToken == "" || !m.now().Add(time.Minute).Before(m.tokenExpiry) {
+	if m.accessToken == "" || !m.now().Add(tokenRefreshMargin).Before(m.tokenExpiry) {
 		if err := m.refreshLocked(ctx); err != nil {
 			return nil, err
 		}

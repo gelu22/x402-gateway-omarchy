@@ -251,7 +251,7 @@ func TestPostSig5xxChargesDomainSpend(t *testing.T) {
 	if got := spendToday(t, gw); got != 10_000 {
 		t.Fatalf("budget = %d, want 10000", got)
 	}
-	dom, err := gw.Sellers.Today("127.0.0.1")
+	dom, err := gw.Budget.DomainTotal("127.0.0.1")
 	if err != nil || dom != 10_000 {
 		t.Fatalf("domain spend = %d, want 10000 after post-sig 5xx (err %v)", dom, err)
 	}
@@ -271,7 +271,7 @@ func TestPostSig2xxChargesDomainOnce(t *testing.T) {
 	if payments.Load() != 1 {
 		t.Fatalf("OnPayment = %d, want 1", payments.Load())
 	}
-	dom, err := gw.Sellers.Today("127.0.0.1")
+	dom, err := gw.Budget.DomainTotal("127.0.0.1")
 	if err != nil || dom != 10_000 {
 		t.Fatalf("domain spend = %d, want 10000 once (no double) (err %v)", dom, err)
 	}
@@ -300,11 +300,11 @@ func TestPostSig5xxDomainSubCapTightens(t *testing.T) {
 	if !errors.Is(err, ErrUpstream) {
 		t.Fatalf("first: want ErrUpstream, got %v", err)
 	}
-	dom, _ := gw.Sellers.Today("127.0.0.1")
+	dom, _ := gw.Budget.DomainTotal("127.0.0.1")
 	if dom != 15_000 {
 		t.Fatalf("domain after first = %d, want 15000", dom)
 	}
-	// Second 10k would be 25k > 20k sub-cap → budget_exceeded before sign.
+	// Second 10k would be 25k > 20k sub-cap → denied before signing.
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Payment-Required", paymentRequiredHeaderWith("10000", usdcBaseSepolia, "eip155:84532"))
 		w.WriteHeader(http.StatusPaymentRequired)
@@ -312,7 +312,81 @@ func TestPostSig5xxDomainSubCapTightens(t *testing.T) {
 	t.Cleanup(srv2.Close)
 	_, err = gw.Fetch(context.Background(), http.MethodGet, srv2.URL+"/b", nil, nil)
 	var perr *PolicyError
-	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
-		t.Fatalf("want budget_exceeded (domain sub-cap after post-sig charge), got %v", err)
+	if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
+		t.Fatalf("want domain_cap_exceeded (domain cap after post-sig charge), got %v", err)
+	}
+	if got := gw.Signer.(*settleSigner).signCalls.Load(); got != 1 {
+		t.Fatalf("signCalls = %d, want 1 (the denied request must not sign)", got)
+	}
+}
+
+// TestConcurrentRequestsToOneSellerRespectDomainCap (47.1, r12) is the
+// maintainer's report at the gateway boundary: two ordinary concurrent requests
+// to DIFFERENT urls on one approved seller must not exceed the domain cap. The
+// committed total and the reservation have to be read in the same transaction —
+// when the committed total came from a separate store, the first payment had
+// already left Reserved and was invisible to the second check.
+func TestConcurrentRequestsToOneSellerRespectDomainCap(t *testing.T) {
+	gw, _ := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	p := policy.Default()
+	p.DailyCapMicro = 1_000_000 // 20% sub-cap = 200_000
+	gw.SetPolicy(p)
+	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	// 3 × 80_000 = 240_000 > 200_000, but any 2 fit — so a correct ledger lets
+	// exactly two through and a split ledger would let all three.
+	newSeller := func() *httptest.Server {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Payment-Signature") == "" {
+				w.Header().Set("Payment-Required", paymentRequiredHeaderWith("80000", usdcBaseSepolia, "eip155:84532"))
+				w.WriteHeader(http.StatusPaymentRequired)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	a, b, c := newSeller(), newSeller(), newSeller()
+
+	const n = 3
+	start := make(chan struct{})
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	urls := []string{a.URL + "/x", b.URL + "/y", c.URL + "/z"}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = gw.Fetch(context.Background(), http.MethodGet, urls[i], nil, nil)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	paid := 0
+	for i, err := range errs {
+		if err == nil {
+			paid++
+			continue
+		}
+		var perr *PolicyError
+		if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
+			t.Fatalf("request %d: want domain_cap_exceeded, got %v", i, err)
+		}
+	}
+	if paid != 2 {
+		t.Fatalf("paid = %d, want 2 (160_000 fits under 200_000, 240_000 does not)", paid)
+	}
+	dom, err := gw.Budget.DomainTotal("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dom != 160_000 {
+		t.Fatalf("domain total = %d, want 160000", dom)
 	}
 }

@@ -38,6 +38,14 @@ type PaymentRequired struct {
 }
 
 // ParsePaymentRequired decodes the base64 PAYMENT-REQUIRED header value.
+//
+// Deliberately NO DisallowUnknownFields (47.5): x402 v2 is extension-based by
+// contract (PaymentRequired.Extensions carries forward-compatible fields), so a
+// strict parser would reject legitimate sellers before their content is even
+// looked at. The security ceiling is not the parser's shape check but
+// policy.CheckStatic on the CONTENT after parsing — canonical amount, pinned
+// asset, network whitelist. Unknown fields are ignored; the version and the
+// accepts list are still enforced. Pinned by payment-required_boundary_test.go.
 func ParsePaymentRequired(header string) (*PaymentRequired, error) {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(header))
 	if err != nil {

@@ -37,7 +37,8 @@ we have a fix or a mitigation.
 - the Omarchy QML plugin (`plugin/omarchy/*`) and the MCP bridge
 - `scripts/install.sh` and the release artifacts (checksums, sigstore
   attestations)
-- the documented contracts (`docs/gateway/CONTRACTS.md`)
+- the wire contract itself: the unix socket is 0700 with peer-credential checks,
+  and every request/response envelope is documented in the API contract
 
 ## What is out of scope
 
@@ -61,7 +62,7 @@ we have a fix or a mitigation.
 - **Device compromise is credential compromise.** If malware reads the TWS and
   the refresh token, it can sign directly at CDP and bypass this daemon. The
   primary controls are the ptrace/core-dump block, the short TWS lifetime and
-  Coinbase-side MFA — see `docs/gateway/THREAT-MODEL.md` (T3).
+  Coinbase-side MFA.
 - **MFA has no recovery codes.** Losing the authenticator means resetting MFA in
   the CDP portal.
 - **The clock matters.** EIP-3009 authorizations are valid in a ±5 minute
@@ -70,8 +71,8 @@ we have a fix or a mitigation.
   PATH. An attacker who controls your PATH already executes code as you (out of
   scope). Mitigations: `type -P` rejects functions/aliases; attestation is
   verified against a pinned signer workflow + tag (not just an exit code);
-  sha256 cross-check is always required. A future out-of-band anchor (signed
-  checksums with a pinned public key) would close this — see ADR-001 D11.
+  sha256 cross-check is always required. An out-of-band anchor (signed checksums
+  with a pinned public key) would close this and is not implemented yet.
 
 ## Disclaimer
 

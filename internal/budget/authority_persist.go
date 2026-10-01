@@ -26,41 +26,59 @@ func (a *Authority) path() string { return filepath.Join(a.stateDir, "budget.jso
 // a payment straddling midnight left the daily cap uncounted).
 func (a *Authority) load() (state, error) {
 	var st state
+	fresh := func() state {
+		return state{
+			Day:           a.today(),
+			SpentByDomain: map[string]int64{},
+			Reserved:      map[string]reservation{},
+		}
+	}
 	raw, err := os.ReadFile(a.path())
 	if os.IsNotExist(err) {
-		return state{Day: a.today(), Reserved: map[string]reservation{}}, nil
+		return fresh(), nil
 	}
 	if err != nil {
 		return st, fmt.Errorf("budget: read: %w", err)
 	}
 	if err := json.Unmarshal(raw, &st); err != nil {
-		return state{Day: a.today(), Reserved: map[string]reservation{}}, nil
+		return fresh(), nil
 	}
 	today := a.today()
 	dirty := false
 	if st.Day != today {
 		carry := int64(0)
+		carryByDomain := map[string]int64{}
 		// Unsigned holds that have not expired must survive the rollover: the
 		// caller still holds the token and will call MarkSigned. Dropping them
 		// made MarkSigned a silent no-op (unknown token), so a payment
 		// straddling midnight went out unaccounted (46.6, F1).
-		fresh := make(map[string]reservation, len(st.Reserved))
+		freshHold := make(map[string]reservation, len(st.Reserved))
 		for k, r := range st.Reserved {
 			if r.Signed {
 				carry = satAddSpent(carry, r.AmountMicro)
+				// The domain share carries too, or a payment signed before
+				// midnight escapes the new day's domain cap (47.1).
+				carryByDomain[r.Domain] = satAddSpent(carryByDomain[r.Domain], r.AmountMicro)
 				continue
 			}
 			if a.now().After(r.ExpiresAt) {
 				continue // expired unsigned hold: drop, as before
 			}
 			r.ExpiresAt = a.now().Add(ReservationTTL)
-			fresh[k] = r // stays UNSIGNED: no signature, no charge (44.4b)
+			freshHold[k] = r // stays UNSIGNED: no signature, no charge (44.4b)
 		}
-		st = state{Day: today, Spent: carry, Reserved: fresh}
+		st = state{Day: today, Spent: carry, SpentByDomain: carryByDomain, Reserved: freshHold}
 		dirty = true
 	}
 	if st.Reserved == nil {
 		st.Reserved = map[string]reservation{}
+	}
+	if st.SpentByDomain == nil {
+		// A budget.json written before 47.1 has no domain totals. Start empty:
+		// the per-domain cap then counts from the new file, and the registry is
+		// no longer an input to it.
+		st.SpentByDomain = map[string]int64{}
+		dirty = true
 	}
 	for k, r := range st.Reserved {
 		if !a.now().After(r.ExpiresAt) {
@@ -68,6 +86,7 @@ func (a *Authority) load() (state, error) {
 		}
 		if r.Signed {
 			st.Spent = satAddSpent(st.Spent, r.AmountMicro)
+			st.SpentByDomain[r.Domain] = satAddSpent(st.SpentByDomain[r.Domain], r.AmountMicro)
 		}
 		delete(st.Reserved, k)
 		dirty = true
@@ -76,6 +95,12 @@ func (a *Authority) load() (state, error) {
 	if st.Spent < 0 {
 		st.Spent = 0
 		dirty = true
+	}
+	for d, v := range st.SpentByDomain {
+		if v < 0 {
+			st.SpentByDomain[d] = 0
+			dirty = true
+		}
 	}
 	if dirty {
 		if err := a.persist(st); err != nil {

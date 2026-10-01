@@ -18,8 +18,9 @@ import (
 // transport error, content_too_large) Commits — the seller may already have
 // redeemed (HANCORE a / 44.3). MarkSigned persists before send so a crash
 // before Commit still promotes via TTL (HANCORE b / 44.4).
-// Domain spend (Sellers.Add) runs on every post-sig Commit (NEW-P1-3 /
-// 44.repass.1). OnPayment stays 2xx-only (telemetry / balance invalidate).
+// Domain spend is no longer written here: the Commit moves the per-domain total
+// inside the budget authority, which is the only place the per-domain cap is
+// read from (47.1). OnPayment stays 2xx-only (telemetry / balance invalidate).
 func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body []byte, headers map[string]string, pr *x402.PaymentRequired, req *x402.PaymentRequirements, overrideAmountMicro int64, key string, amountMicro int64, amountErr error, budgetToken string) (*FetchResult, error) {
 	release := func() {
 		if budgetToken == "" || g.Budget == nil {
@@ -37,10 +38,10 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 			g.Logger.Error("budget commit", "err", cerr)
 		}
 	}
-	// commitPostSig: daily Commit + domain ledger (sub-cap). Never Release.
+	// commitPostSig: daily Commit, which also moves the per-domain total inside
+	// the same transaction (47.1). Never Release.
 	commitPostSig := func() {
 		commit()
-		g.chargeDomain(amountMicro, normSellerDomain(target))
 	}
 	if amountErr != nil {
 		release()
@@ -157,12 +158,3 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 
 // chargeDomain records per-seller day spend after a post-sig Commit so the
 // 20% domain sub-cap cannot be bypassed by redeem-then-non-2xx (NEW-P1-3).
-func (g *Gateway) chargeDomain(amountMicro int64, domain string) {
-	if g.Sellers == nil || domain == "" || amountMicro <= 0 {
-		return
-	}
-	if err := g.Sellers.Add(domain, amountMicro); err != nil && g.Logger != nil {
-		// Add keeps dirty memory (44.7.1); Error so ops see persist fail.
-		g.Logger.Error("sellers record", "err", err)
-	}
-}

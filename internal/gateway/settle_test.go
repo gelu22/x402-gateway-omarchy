@@ -265,3 +265,17 @@ func TestSignRefusesWithoutAccountedAmount(t *testing.T) {
 		t.Fatalf("signed %d times without an amount, want 0", got)
 	}
 }
+
+// commitBudget pre-loads spent budget through the atomic authority (42.1/47.1).
+// Test helper only: Authorize + Commit = the amount is spent, counted against
+// domain so the per-domain cap sees it.
+func commitBudget(t *testing.T, gw *Gateway, amountMicro int64, domain string) {
+	t.Helper()
+	token, err := gw.Budget.Authorize(amountMicro, 1<<62, 0, domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Budget.Commit(token); err != nil {
+		t.Fatal(err)
+	}
+}

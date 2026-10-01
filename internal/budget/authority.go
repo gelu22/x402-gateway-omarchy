@@ -20,10 +20,13 @@ import (
 	"time"
 )
 
-// ErrBudget means the authorization would exceed the daily cap or the
-// per-domain sub-cap. The caller maps this to the existing budget_exceeded
-// path (overridable).
-var ErrBudget = fmt.Errorf("budget: exceeded")
+// ErrBudget means the authorization would exceed the daily cap. ErrSubCap means
+// it would exceed the per-domain cap. They are distinct so the caller can name
+// the sharper limit rather than reporting every denial as "budget gone".
+var (
+	ErrBudget = fmt.Errorf("budget: exceeded")
+	ErrSubCap = fmt.Errorf("budget: domain cap exceeded")
+)
 
 // ReservationTTL bounds how long an uncommitted reservation holds budget
 // after a crash. 15 min > MFA wait (180 s), so an in-flight payment that
@@ -41,11 +44,15 @@ type reservation struct {
 	Signed      bool      `json:"signed"`
 }
 
-// state is the on-disk shape. Reserved is keyed by token.
+// state is the on-disk shape. Reserved is keyed by token. SpentByDomain is the
+// committed per-domain total, kept HERE rather than in the Sellers registry so
+// that the per-domain cap is decided in one transaction with the reservation —
+// a separate store left a window where a settled payment was in neither (47.1).
 type state struct {
-	Day      string                 `json:"day"`
-	Spent    int64                  `json:"spent_micro"`
-	Reserved map[string]reservation `json:"reserved"`
+	Day           string                 `json:"day"`
+	Spent         int64                  `json:"spent_micro"`
+	SpentByDomain map[string]int64       `json:"spent_by_domain_micro"`
+	Reserved      map[string]reservation `json:"reserved"`
 }
 
 // Authority is the single owner of the daily budget. All mutations go
@@ -94,9 +101,14 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 		return "", ErrBudget
 	}
 	if subcapMicro > 0 {
-		domainTotal := reservedForDomain(st, domain)
+		// Committed plus in-flight, both from THIS state and under THIS lock.
+		// Reading the committed per-domain total from another store left a
+		// window: a settled payment had already left Reserved but was not yet
+		// visible to the other store, so a concurrent request authorised against
+		// a stale balance and two ordinary requests could exceed the cap (47.1).
+		domainTotal := satAddSpent(st.SpentByDomain[domain], reservedForDomain(st, domain))
 		if domainTotal > math.MaxInt64-amountMicro || domainTotal+amountMicro > subcapMicro {
-			return "", ErrBudget
+			return "", ErrSubCap
 		}
 	}
 	// Token = wall clock + monotonic sequence (46.6, F10). The clock alone is
@@ -114,77 +126,4 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 		return "", err // fail-closed: no persist, no authorization
 	}
 	return token, nil
-}
-
-// MarkSigned records that Payment-Signature is about to be sent. Fail-closed
-// persist; unknown token = no-op (idempotent after Commit). Renews ExpiresAt
-// so a slow seller response does not race the original Authorize TTL.
-func (a *Authority) MarkSigned(token string) error {
-	if token == "" {
-		return nil
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := a.load()
-	if err != nil {
-		return err
-	}
-	r, ok := st.Reserved[token]
-	if !ok {
-		return nil
-	}
-	r.Signed = true
-	r.ExpiresAt = a.now().Add(ReservationTTL)
-	st.Reserved[token] = r
-	return a.persist(st)
-}
-
-// Commit moves a reservation into Spent. Unknown token = no-op (idempotent:
-// a crash between persist and the caller's next step must not double-count).
-func (a *Authority) Commit(token string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := a.load()
-	if err != nil {
-		return err
-	}
-	r, ok := st.Reserved[token]
-	if !ok {
-		return nil
-	}
-	delete(st.Reserved, token)
-	st.Spent = satAddSpent(st.Spent, r.AmountMicro)
-	return a.persist(st)
-}
-
-// Release drops an unsigned reservation without charging. If the reservation
-// is Signed (Payment-Signature at risk), Release must NOT refund: promote to
-// Spent instead (NEW-P3-1 / 44.repass.2). Unknown token = no-op.
-func (a *Authority) Release(token string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := a.load()
-	if err != nil {
-		return err
-	}
-	r, ok := st.Reserved[token]
-	if !ok {
-		return nil
-	}
-	delete(st.Reserved, token)
-	if r.Signed {
-		st.Spent = satAddSpent(st.Spent, r.AmountMicro)
-	}
-	return a.persist(st)
-}
-
-// Today returns the current daily total (spent + reserved) for display.
-func (a *Authority) Today() (int64, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, err := a.load()
-	if err != nil {
-		return 0, err
-	}
-	return st.Spent + reservedTotal(st), nil
 }

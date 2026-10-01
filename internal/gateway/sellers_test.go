@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
+	"gateway/internal/budget"
 	"gateway/internal/policy"
 )
 
@@ -56,28 +56,6 @@ func TestSellersLandEmptyRefused(t *testing.T) {
 	}
 	if known, _ := r.Known(""); known {
 		t.Fatal("empty domain must never be known")
-	}
-}
-
-func TestSellersDayRollover(t *testing.T) {
-	dir := t.TempDir()
-	day1 := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
-	r := &SellerRegistry{stateDir: dir, now: func() time.Time { return day1 }}
-	if err := r.Land("seller.example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Add("seller.example.com", 50000); err != nil {
-		t.Fatal(err)
-	}
-	// Next day: still known (no re-approval), spend counter reset.
-	r.now = func() time.Time { return day1.Add(26 * time.Hour) }
-	known, err := r.Known("seller.example.com")
-	if err != nil || !known {
-		t.Fatalf("known must survive day change: %v %v", known, err)
-	}
-	spent, err := r.Today("seller.example.com")
-	if err != nil || spent != 0 {
-		t.Fatalf("day spend after rollover = %d, want 0 (err %v)", spent, err)
 	}
 }
 
@@ -155,10 +133,10 @@ func TestUnknownSellerAsks(t *testing.T) {
 func TestApproveSellerLandsAndPays(t *testing.T) {
 	gw, payments := newSettleGateway(t)
 	gw.Sellers = NewSellerRegistry(t.TempDir())
-	// Full production mirror (main.go): spend + per-domain spend on settle.
+	// Production mirror (build.go): side effects only. The budget charge, daily
+	// and per-domain, is owned by the reservation flow (47.1).
 	gw.OnPayment = func(amountMicro int64, domain string) {
 		payments.Add(1)
-		// Domain spend: fetch_sign.chargeDomain (44.repass.1) — do not Add here.
 	}
 	srv := seller402(t, "50000", http.StatusOK)
 
@@ -172,8 +150,8 @@ func TestApproveSellerLandsAndPays(t *testing.T) {
 	if err != nil || !known {
 		t.Fatalf("approval must land the seller: %v %v", known, err)
 	}
-	// Per-domain spend recorded through the production OnPayment wiring.
-	spent, err := gw.Sellers.Today("127.0.0.1")
+	// Per-domain spend is recorded by the budget authority on Commit (47.1).
+	spent, err := gw.Budget.DomainTotal("127.0.0.1")
 	if err != nil || spent != 50_000 {
 		t.Fatalf("domain spend = %d, want 50000 (err %v)", spent, err)
 	}
@@ -224,15 +202,15 @@ func TestSubCapBlocks(t *testing.T) {
 	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.Sellers.Add("127.0.0.1", 15_000); err != nil {
-		t.Fatal(err)
-	}
+	// Pre-load through the authority: the budget ledger is what the domain cap
+	// is decided from (47.1).
+	commitBudget(t, gw, 15_000, "127.0.0.1")
 	// 15k + 30k = 45k > 20k sub-cap, within 100k daily → sharper limit wins.
 	srv := seller402(t, "30000", http.StatusOK)
 	_, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/content", nil, nil)
 	var perr *PolicyError
-	if !errors.As(err, &perr) || perr.Code != "budget_exceeded" {
-		t.Fatalf("want budget_exceeded (domain sub-cap via Authorize), got %v", err)
+	if !errors.As(err, &perr) || perr.Code != "domain_cap_exceeded" {
+		t.Fatalf("want domain_cap_exceeded (domain cap denied atomically by Authorize, 47.1), got %v", err)
 	}
 	if !perr.CanOverride || perr.AmountMicro != 30_000 {
 		t.Fatalf("want overridable 30000, got %+v", perr)
@@ -251,9 +229,7 @@ func TestSubCapAllows(t *testing.T) {
 	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.Sellers.Add("127.0.0.1", 5_000); err != nil {
-		t.Fatal(err)
-	}
+	commitBudget(t, gw, 5_000, "127.0.0.1")
 	// 5k + 15k = 20k ≤ 20k boundary → pays.
 	srv := seller402(t, "15000", http.StatusOK)
 	if _, err := gw.Fetch(context.Background(), http.MethodGet, srv.URL+"/content", nil, nil); err != nil {
@@ -264,108 +240,6 @@ func TestSubCapAllows(t *testing.T) {
 	}
 }
 
-// Tampered negative day-spend must read as zero, never loosen the sub-cap.
-func TestTamperedNegativeDaySpendClamped(t *testing.T) {
-	dir := t.TempDir()
-	day := time.Now().Format("2006-01-02") // file day == today: no rollover to hide behind
-	raw := `{"day":"` + day + `","domains":{"evil.example":{"firstSeen":"` + day + `","day":"` + day + `","daySpendMicro":-9000}}}`
-	if err := os.WriteFile(filepath.Join(dir, "sellers.json"), []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := &SellerRegistry{stateDir: dir, now: func() time.Time { d, _ := time.Parse("2006-01-02", day); return d }}
-	v, err := r.Today("evil.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 0 {
-		t.Fatalf("negative daySpend must read zero, got %d", v)
-	}
-}
-
-// Future-dated entry keeps spend (no silent reset), normalizes the day.
-func TestFutureEntryKeepsSpend(t *testing.T) {
-	dir := t.TempDir()
-	tomorrow := time.Now().Add(26 * time.Hour).Format("2006-01-02")
-	raw := `{"day":"` + tomorrow + `","domains":{"evil.example":{"firstSeen":"` + tomorrow + `","day":"` + tomorrow + `","daySpendMicro":31000}}}`
-	if err := os.WriteFile(filepath.Join(dir, "sellers.json"), []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := NewSellerRegistry(dir)
-	v, err := r.Today("evil.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 31000 {
-		t.Fatalf("future-dated spend must be kept, got %d", v)
-	}
-}
-
-// Malformed day sorts above any date: reset, never pin spend forever.
-func TestMalformedSellerDayResets(t *testing.T) {
-	dir := t.TempDir()
-	raw := `{"day":"zzz","domains":{"evil.example":{"firstSeen":"zzz","day":"zzz","daySpendMicro":31000}}}`
-	if err := os.WriteFile(filepath.Join(dir, "sellers.json"), []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := NewSellerRegistry(dir)
-	v, err := r.Today("evil.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 0 {
-		t.Fatalf("malformed day must reset, got %d", v)
-	}
-}
-
-// Case-variant dup keys collapse: sub-cap accounting cannot be split.
-func TestSellerKeysNormalized(t *testing.T) {
-	dir := t.TempDir()
-	day := time.Now().Format("2006-01-02")
-	raw := `{"day":"` + day + `","domains":{"Evil.Example":{"firstSeen":"` + day + `","day":"` + day + `","daySpendMicro":7000}}}`
-	if err := os.WriteFile(filepath.Join(dir, "sellers.json"), []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := NewSellerRegistry(dir)
-	v, err := r.Today("evil.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 7000 {
-		t.Fatalf("normalized key must read 7000, got %d", v)
-	}
-}
-
-// Add with non-positive amounts is refused, like spend.Add.
-func TestSellerAddRejectsNonPositive(t *testing.T) {
-	r := NewSellerRegistry(t.TempDir())
-	for _, amount := range []int64{0, -100} {
-		if err := r.Add("evil.example", amount); err == nil {
-			t.Fatalf("Add(%d) must fail, got nil", amount)
-		}
-	}
-}
-
-// Hand-edited case variants of one domain merge by summing: splitting spend
-// across keys must never loosen the sub-cap.
-func TestCaseVariantKeysMergeBySum(t *testing.T) {
-	dir := t.TempDir()
-	day := time.Now().Format("2006-01-02")
-	raw := `{"day":"` + day + `","domains":{` +
-		`"Evil.Example":{"firstSeen":"` + day + `","day":"` + day + `","daySpendMicro":7000},` +
-		`"evil.example":{"firstSeen":"` + day + `","day":"` + day + `","daySpendMicro":3000}}}`
-	if err := os.WriteFile(filepath.Join(dir, "sellers.json"), []byte(raw), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := NewSellerRegistry(dir)
-	v, err := r.Today("EVIL.EXAMPLE")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v != 10000 {
-		t.Fatalf("merged spend = %d, want 10000", v)
-	}
-}
-
 // TestSubCapIsPerHostnameNotRegistrableDomain (46.11, F6) pins the T1 boundary:
 // the sub-cap is keyed by hostname, so two hosts of the same registrable domain
 // each get a full sub-cap. Folding to the registrable domain would need a
@@ -373,31 +247,38 @@ func TestCaseVariantKeysMergeBySum(t *testing.T) {
 // is deliberately not done. This test makes a future fold a conscious act rather
 // than a silent behaviour change.
 func TestSubCapIsPerHostnameNotRegistrableDomain(t *testing.T) {
-	reg := NewSellerRegistry(t.TempDir())
-	if err := reg.Land("a.example.com"); err != nil {
+	// The ledger is the budget authority since 47.1; the registry is TOFU-only.
+	a := budget.NewAuthority(t.TempDir(), nil)
+	subcap := int64(50_000)
+
+	tok, err := a.Authorize(45_000, 1<<62, subcap, "a.example.com")
+	if err != nil {
+		t.Fatalf("a.example.com: %v", err)
+	}
+	if err := a.Commit(tok); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Land("b.example.com"); err != nil {
-		t.Fatal(err)
-	}
-	// Spend almost the whole sub-cap on the first host.
-	if err := reg.Add("a.example.com", 45_000); err != nil {
-		t.Fatal(err)
-	}
-	a, err := reg.Today("a.example.com")
+	spentA, err := a.DomainTotal("a.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a != 45_000 {
-		t.Fatalf("a.example.com spend = %d, want 45000", a)
+	if spentA != 45_000 {
+		t.Fatalf("a.example.com spend = %d, want 45000", spentA)
 	}
 	// The sibling host has its own budget: no folding to example.com.
-	b, err := reg.Today("b.example.com")
+	spentB, err := a.DomainTotal("b.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b != 0 {
-		t.Fatalf("b.example.com spend = %d, want 0 (per-hostname sub-cap)", b)
+	if spentB != 0 {
+		t.Fatalf("b.example.com spend = %d, want 0 (per-hostname cap)", spentB)
+	}
+	// 10k more on the first host would cross 50k; the sibling has room.
+	if _, err := a.Authorize(10_000, 1<<62, subcap, "a.example.com"); err != budget.ErrSubCap {
+		t.Fatalf("a.example.com must be capped at %d: got %v", subcap, err)
+	}
+	if _, err := a.Authorize(45_000, 1<<62, subcap, "b.example.com"); err != nil {
+		t.Fatalf("b.example.com keeps its own cap: %v", err)
 	}
 	// The port is not part of the key either (Hostname strips it).
 	withPort := normSellerDomain("https://a.example.com:8443/x")

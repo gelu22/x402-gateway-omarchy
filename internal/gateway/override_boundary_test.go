@@ -86,17 +86,18 @@ func TestTOFUPrecedesSubCapForUnknownSeller(t *testing.T) {
 		t.Fatalf("payments = %d, want 0", payments.Load())
 	}
 
-	// Land it, then the sub-cap is what refuses (known seller, $0.045 already spent).
+	// Land it, then the domain cap is what refuses (known seller, $0.045 already
+	// spent on it today). The pre-load goes through the budget authority, which
+	// is the ledger the cap is decided from (47.1) — the Sellers registry no
+	// longer feeds the cap.
 	if err := gw.Sellers.Land("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.Sellers.Add("127.0.0.1", 45_000); err != nil {
-		t.Fatal(err)
-	}
+	commitBudget(t, gw, 45_000, "127.0.0.1")
 	_, err = gw.Fetch(context.Background(), http.MethodGet, url, nil, nil)
 	perr, code := policyErrCode(t, err)
-	if code != "budget_exceeded" || !perr.CanOverride {
-		t.Fatalf("known seller over the sub-cap: code=%s canOverride=%v", code, perr.CanOverride)
+	if code != "domain_cap_exceeded" || !perr.CanOverride {
+		t.Fatalf("known seller over the domain cap: code=%s canOverride=%v", code, perr.CanOverride)
 	}
 	if payments.Load() != 0 {
 		t.Fatalf("payments = %d, want 0 over the sub-cap", payments.Load())

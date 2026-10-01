@@ -112,3 +112,25 @@ func TestInstallPluginForeignManifestStillRefused(t *testing.T) {
 		t.Fatalf("foreign dir must be untouched, got %v", left)
 	}
 }
+
+// TestInstallSucceedsWithoutOmarchy (47.2): a missing ~/.config/omarchy skips
+// the plugin and config seed but the install itself succeeds — the program is
+// usable without the UI, and the skip is reported through the wired Logger.
+func TestInstallSucceedsWithoutOmarchy(t *testing.T) {
+	home := t.TempDir()
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	bin := filepath.Join(t.TempDir(), "gateway")
+	makeBundle(t, bundle)
+	makeBinary(t, bin)
+	opts := testOpts(t, home, bundle, bin)
+	// No ~/.config/omarchy created: the plugin branch must be skipped, not fail.
+	if err := Install(opts); err != nil {
+		t.Fatalf("install without omarchy must succeed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(opts.BinDir, "gateway")); err != nil {
+		t.Fatalf("binary must be installed: %v", err)
+	}
+	if _, err := os.Stat(opts.PluginDir); !os.IsNotExist(err) {
+		t.Fatalf("plugin dir must be skipped, stat err = %v", err)
+	}
+}

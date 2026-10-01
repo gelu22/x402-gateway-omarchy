@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.17] — 2026-10-01
+
+### Security
+
+- **The per-domain cap is decided in one transaction.** The committed
+  per-domain total now lives beside the daily total in the budget authority,
+  and the reservation check sums committed plus in-flight from the same state
+  under the same lock. Previously the committed total was read from a separate
+  store before the reservation, so a payment that had already settled was in
+  neither store's view of the domain and two ordinary concurrent requests to
+  different URLs on one approved seller could exceed the domain cap. Day
+  rollover and the expiry sweep carry the domain share too, so a payment signed
+  before midnight cannot escape the new day's cap. A denial now reports
+  `domain_cap_exceeded` again instead of collapsing both caps into
+  `budget_exceeded`.
+- **The seller registry is trust-on-first-use only.** With the authority owning
+  the per-domain ledger, the registry's separate spend tracking was a second
+  writer of the same fact — the drift that caused the race — and is removed.
+
+### Fixed
+
+- **Single-use sudo MFA** (from 0.1.16, restated for the release notes): one
+  verified code authorises exactly one spending-authority raise; a repeat inside
+  the window is refused with `mfa_stale`.
+- Public documentation no longer points at internal design documents that are
+  not part of the published snapshot.
+
+### Changed
+
+- The CDP sign request embeds the typed data via `json.RawMessage` instead of a
+  decode/re-encode round-trip through an untyped value; the wire payload is
+  semantically identical and pinned by a ratchet.
+- The 402 parser's permissiveness is now stated contract: unknown fields from a
+  seller are ignored because x402 v2 is extension-based, while the version and
+  the accepts list stay enforced. The security ceiling is the content check
+  after parsing (canonical amount, pinned asset, network whitelist), not the
+  parser's shape. Pinned from both sides so a future "hardening" breaks a
+  ratchet consciously instead of rejecting legitimate sellers silently.
+
 ## [0.1.16] — 2026-10-01
 
 ### Security
@@ -51,10 +90,9 @@ the security-class gate's coverage of the current ledger, partial-plugin rollbac
 on a failed install, `self-remove` under a live daemon, and the per-host sub-cap
 boundary. The P3 items are documentation accuracy.
 
-Known, deliberately accepted boundaries are stated in `SECURITY.md` and
-`THREAT-MODEL.md`: the daily total, the domain ledger and the policy file are
-user-writable by the same user, and a per-host sub-cap is per hostname rather than
-per registrable domain.
+Known, deliberately accepted boundaries are stated in `SECURITY.md`: the daily
+total, the domain ledger and the policy file are user-writable by the same user,
+and a per-host sub-cap is per hostname rather than per registrable domain.
 
 ## [0.1.15] — 2026-09-30
 
@@ -81,7 +119,7 @@ per registrable domain.
 
 - **Security-class gate harden**: money/lifecycle path coverage for
   `internal/budget` and `internal/install`; stricter mutable `/tmp` detection;
-  `security_class_test.sh` wired into preflight.
+  the gate's own fixture suite wired into the pre-push check.
 
 ## [0.1.13] — 2026-09-30
 
@@ -99,15 +137,18 @@ per registrable domain.
   downloader that delegates to `gateway install` / `gateway self-remove`.
 - **Trust-anchor layers**: `resolve_tool` + `type -P` reject PATH functions/
   aliases for `curl`/`gh`; attestation + sha256 both required (unless a
-  documented opt-out). `SECURITY.md` states the PATH trust boundary; ADR-001 D11
-  records the future out-of-band anchor.
-- **Security-class gate**: `scripts/check-security-classes.sh` in preflight plus
-  required `knowledge/reviews/<promptId>.md` for money/lifecycle/session changes.
+  documented opt-out). `SECURITY.md` states the PATH trust boundary and names the
+  out-of-band anchor as not implemented yet.
+- **Security-class gate**: a deterministic class lint runs in the pre-push check
+  (mutable references, unverified execution, money check-then-act, fail-open
+  persistence, secrets), plus a recorded review artifact required for
+  money/lifecycle/session changes. The lint itself is part of the private
+  development tree, not the published snapshot.
 
 ### Added
 
-- README section **Supported payment rail** and ADR-001 **D10** (EIP-3009 on
-  Base; non-goal non-EVM).
+- README section **Supported payment rail** (EIP-3009 on Base; non-goal
+  non-EVM).
 
 ## [0.1.12] — 2026-09-29
 
@@ -128,8 +169,8 @@ per registrable domain.
   tag is documented for **inspection only**, and the single documented way to run
   the installer is the pinned download plus attestation check. A moved tag can no
   longer silently run a different installer than the reviewed release.
-- Added `scripts/preflight.sh` (the pre-push gate) and wired the container test
-  into CI.
+- Added a pre-push gate (format, vet, tests, installer and container checks) and
+  wired the container test into CI.
 
 ## [0.1.10] — 2026-09-28
 
@@ -178,8 +219,9 @@ per registrable domain.
 
 - No downloaded or sibling script is executed any more: `install.sh purge` wipes
   inline instead of fetching `uninstall.sh` from a mutable branch (or running a
-  foreign `/tmp/uninstall.sh`). `install.sh`/`uninstall.sh` now ship as signed
-  release assets, and the README uses those release URLs instead of `master`.
+  foreign copy from a temporary directory). `install.sh`/`uninstall.sh` now ship
+  as signed release assets, and the README uses those release URLs instead of
+  `master`.
 - The installer pins the signer workflow and the tag when verifying the sigstore
   attestation, and `GATEWAY_RELEASE_BASE` is accepted only as a `file://` offline
   source (a remote override needs the explicit `GATEWAY_ALLOW_UNVERIFIED=1`).

@@ -100,23 +100,6 @@ func (r *SellerRegistry) Known(domain string) (bool, error) {
 	return ok, nil
 }
 
-func (r *SellerRegistry) Today(domain string) (int64, error) {
-	domain = normKey(domain)
-	if domain == "" {
-		return 0, nil
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	st, err := r.loadLocked()
-	if err != nil {
-		return 0, err
-	}
-	if e, ok := st.Domains[domain]; ok {
-		return e.DaySpendMicro, nil
-	}
-	return 0, nil
-}
-
 func (r *SellerRegistry) Land(domain string) error {
 	domain = normKey(domain)
 	if domain == "" {
@@ -137,33 +120,4 @@ func (r *SellerRegistry) Land(domain string) error {
 	}
 	r.mem = cloneSellerState(st)
 	return nil
-}
-
-func (r *SellerRegistry) Add(domain string, amountMicro int64) error {
-	domain = normKey(domain)
-	if domain == "" {
-		return fmt.Errorf("sellers: refusing to record empty domain")
-	}
-	if amountMicro <= 0 {
-		return fmt.Errorf("sellers: refusing non-positive amount %d", amountMicro)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	st, err := r.loadLocked()
-	if err != nil {
-		return err
-	}
-	e, ok := st.Domains[domain]
-	if !ok {
-		e = &sellerEntry{FirstSeen: r.today(), Day: r.today()}
-		st.Domains[domain] = e
-	}
-	if e.DaySpendMicro > math.MaxInt64-amountMicro {
-		e.DaySpendMicro = math.MaxInt64
-	} else {
-		e.DaySpendMicro += amountMicro
-	}
-	// Remember bump before persist so a write error cannot loosen Today (NEW-P1-1).
-	r.mem = cloneSellerState(st)
-	return r.saveLocked(st)
 }

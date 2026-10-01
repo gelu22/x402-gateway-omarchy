@@ -69,13 +69,12 @@ func SignAuthorizationViaCDP(ctx context.Context, client *cdp.Client, ws *cdp.Wa
 	if err != nil {
 		return "", err
 	}
-	var tdAny any
-	if err := json.Unmarshal(tdJSON, &tdAny); err != nil {
-		return "", err
-	}
+	// RawMessage embeds the already-marshalled typed data verbatim — no
+	// decode/re-encode round-trip, no `any` that could silently turn the
+	// object into a string (47.4).
 	body := map[string]any{
 		"address":        evmAddress,
-		"typedData":      tdAny,
+		"typedData":      json.RawMessage(tdJSON),
 		"walletSecretId": ws.ID,
 	}
 	payload, err := json.Marshal(body)
