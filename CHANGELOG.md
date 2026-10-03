@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.18] — 2026-10-01
+
+### Security
+
+- **A refused payment no longer waits.** When CDP asks for a verification code at
+  signing time, or a payment is denied pending the owner, the request returns
+  immediately instead of hanging for up to three minutes. The request the owner
+  was shown can no longer settle a different one: there is no pending set left to
+  pick from, so the class of finding is gone by construction rather than patched.
+  The refused payment is remembered (method, URL, body; headers only when the
+  method carries a body) and listed for the owner to act on later, with a single
+  coalesced desktop notification.
+
+### Added
+
+- **Permissions**: a URL plus an amount cap, stored in the daemon so every client
+  benefits, not just the panel. A permission can be permanent or
+  time-limited, is managed over `GET|POST|DELETE /permissions` under the same
+  sudo gate as other authority raises, and lifts only the seller-trust question
+  for that one URL up to its cap. The daily cap and the per-seller share are
+  unchanged; a price above the cap asks again.
+- **Approve a held payment**: `POST /fetch-approve` replays a remembered payment
+  on the owner's approval (`approve_seller` lands the seller; the recorded amount
+  is the ceiling), and `DELETE` dismisses it without paying.
+- The panel shows a "Waiting for you" list of held payments with Pay now, Allow
+  and Dismiss.
+
+### Notes
+
+- The CDP MFA session window length is undocumented by Coinbase; a live
+  measurement is planned and not included here, so this release makes no claim
+  about how often a code is requested.
+- The daemon-side permission store and the sign path are covered by ratchets
+  (permission within/over cap, expiry, corrupt file, unknown seller, daily cap).
+
 ## [0.1.17] — 2026-10-01
 
 ### Security

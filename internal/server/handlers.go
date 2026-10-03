@@ -10,13 +10,25 @@ import (
 	"gateway/internal/gateway"
 )
 
+// statusResponse is the /status envelope: the gateway status plus the list of
+// payments that wait for the owner (49.2). Summaries only — never the blocked
+// request's body or headers.
+type statusResponse struct {
+	*gateway.Status
+	Blocked []BlockedSummary `json:"blocked,omitempty"`
+}
+
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	st, err := s.Gateway.Status(s.Version)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "status_error", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, st)
+	resp := statusResponse{Status: st}
+	if s.blocked != nil {
+		resp.Blocked = s.blocked.Summaries()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handlePairStatus(w http.ResponseWriter, _ *http.Request) {

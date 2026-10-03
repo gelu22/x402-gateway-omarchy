@@ -44,6 +44,11 @@ function loadModelJS() {
       isValidRememberedUrl: (typeof isValidRememberedUrl !== "undefined") ? isValidRememberedUrl : undefined,
       rememberedLimitMicro: (typeof rememberedLimitMicro !== "undefined") ? rememberedLimitMicro : undefined,
       needsApproval: (typeof needsApproval !== "undefined") ? needsApproval : undefined,
+      parseBlocked: (typeof parseBlocked !== "undefined") ? parseBlocked : undefined,
+      blockedAmountText: (typeof blockedAmountText !== "undefined") ? blockedAmountText : undefined,
+      approveBody: (typeof approveBody !== "undefined") ? approveBody : undefined,
+      permissionBody: (typeof permissionBody !== "undefined") ? permissionBody : undefined,
+      validatePermission: (typeof validatePermission !== "undefined") ? validatePermission : undefined,
       overrideReasonText: (typeof overrideReasonText !== "undefined") ? overrideReasonText : undefined,
       parseJsonc: (typeof parseJsonc !== "undefined") ? parseJsonc : undefined,
       parseGatewayConfig: (typeof parseGatewayConfig !== "undefined") ? parseGatewayConfig : undefined,
@@ -791,6 +796,7 @@ describe("Model.js", () => {
       assert.deepStrictEqual(Model.Endpoint, {
         STATUS: "/status", POLICY: "/policy", PAUSE: "/pause",
         PAIR_INIT: "/pair/init", PAIR_VERIFY: "/pair/verify", PAIR_LOGOUT: "/pair/logout", FETCH_OVERRIDE: "/fetch-override",
+        FETCH_APPROVE: "/fetch-approve", PERMISSIONS: "/permissions",
         MFA_ENROLL_INIT: "/mfa/enroll/init", MFA_ENROLL_SUBMIT: "/mfa/enroll/submit",
         MFA_VERIFY_INIT: "/mfa/verify/init", MFA_VERIFY_SUBMIT: "/mfa/verify/submit"
       });
@@ -904,7 +910,7 @@ describe("Model.js", () => {
       assert.strictEqual(Model.formatUsdc("0.05"), "0.05 USDC"); // already-formatted input
       assert.strictEqual(Model.USDC, "USDC");
       assert.strictEqual(Model.USD_SYMBOL, "$");
-      assert.deepStrictEqual(Model.Method, { GET: "GET", POST: "POST" });
+      assert.deepStrictEqual(Model.Method, { GET: "GET", POST: "POST", DELETE: "DELETE" });
     });
   });
 
@@ -1401,5 +1407,51 @@ describe("panelDebugEnabled (43.4: version stamp fail-closed)", () => {
   it("is false for missing/empty/other values", () => {
     for (const v of [undefined, null, "", "0", "true", "yes", "1 ", " 1", 1])
       assert.strictEqual(Model.panelDebugEnabled(v), false, String(v));
+  });
+});
+
+describe("parseBlocked (49.4)", () => {
+  const M = loadModelJS();
+  it("returns [] for a status without blocked", () => {
+    assert.deepStrictEqual(M.parseBlocked({ raw: {} }), []);
+    assert.deepStrictEqual(M.parseBlocked(null), []);
+  });
+  it("skips entries without id or url (fail-closed)", () => {
+    const rows = M.parseBlocked({ raw: { blocked: [
+      { id: "b1", url: "https://a.example/x", amount_micro: 1000, reason: "mfa_required" },
+      { id: "", url: "https://b.example/x" },
+      { id: "b3" },
+      null,
+    ] } });
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].id, "b1");
+    assert.strictEqual(rows[0].host, "a.example");
+    assert.strictEqual(rows[0].reason, "mfa_required");
+  });
+  it("coerces a missing amount to 0 and defaults method", () => {
+    const rows = M.parseBlocked({ raw: { blocked: [{ id: "b1", url: "https://a.example/x" }] } });
+    assert.strictEqual(rows[0].amountMicro, 0);
+    assert.strictEqual(rows[0].method, "GET");
+  });
+});
+
+describe("permission payload (49.4)", () => {
+  const M = loadModelJS();
+  it("validatePermission rejects bad url and zero limit", () => {
+    assert.notStrictEqual(M.validatePermission("ftp://a.example", 1), "");
+    assert.notStrictEqual(M.validatePermission("https://a.example/x", 0), "");
+    assert.strictEqual(M.validatePermission("https://a.example/x", 10), "");
+  });
+  it("permissionBody marks temporary and carries ttl only then", () => {
+    const perm = JSON.parse(M.permissionBody("https://a.example/x", 10, false, 0));
+    assert.strictEqual(perm.temporary, false);
+    assert.strictEqual(perm.ttl_seconds, 0);
+    assert.strictEqual(perm.limit_micro, 10_000_000);
+    const tmp = JSON.parse(M.permissionBody("https://a.example/x", 5, true, 900));
+    assert.strictEqual(tmp.temporary, true);
+    assert.strictEqual(tmp.ttl_seconds, 900);
+  });
+  it("approveBody carries the id", () => {
+    assert.deepStrictEqual(JSON.parse(M.approveBody("b7")), { id: "b7" });
   });
 });

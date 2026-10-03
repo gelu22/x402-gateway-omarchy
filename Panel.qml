@@ -91,6 +91,7 @@ Panel {
     property string configPath: Model.gatewayConfigPath(Quickshell.env("HOME"))
     property string configNetwork: Model.DEFAULT_NETWORK
     property var rememberedUrls: []
+    property var blockedRows: []
     property bool configLoaded: false
 
     // Timestamp of the override request already surfaced (dismissed or shown);
@@ -154,6 +155,8 @@ Panel {
                 root.clockSkewMs = num(o.clock_skew_ms)
                 root.paymentNetwork = o.payment_network || ""
                 root.daemonVersion = o.version || ""
+                // Payments the daemon is holding for the owner (49.2/49.4).
+                root.blockedRows = Model.parseBlocked(o)
                 // Single transition point: resolveStep() decides from daemon
                 // truth. User-initiated steps (submitEmail/submitOtp) set their
                 // own; never inline step logic here.
@@ -575,6 +578,16 @@ Panel {
                 AgentSection {
                     width: parent.width
                     scriptPath: root.agentScriptPath
+                    onFailed: function(msg) { root.fail(msg) }
+                }
+
+                BlockedSection {
+                    id: blockedSection
+                    width: parent.width
+                    visible: root.blockedRows.length > 0
+                    rows: root.blockedRows
+                    socketPath: root.socketPath
+                    onRefresh: root.refresh()
                     onFailed: function(msg) { root.fail(msg) }
                 }
 

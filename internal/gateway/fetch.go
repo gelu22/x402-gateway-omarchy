@@ -73,7 +73,11 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 	} else {
 		perr = pol.CheckStatic(req)
 	}
-	if serr := g.evaluateSeller(target, approveSeller, req); serr != nil {
+	// A daemon permission (49.3) is a pre-approval for this exact URL up to its
+	// cap: it answers the seller-trust and sub-cap question without a dialog.
+	reqAmount, _ := strconv.ParseInt(req.Amount, 10, 64)
+	approved := approveSeller || g.Permissions.Allows(target, reqAmount)
+	if serr := g.evaluateSeller(target, approved, req); serr != nil {
 		if perr == nil {
 			perr = serr
 		}
@@ -107,7 +111,7 @@ func (g *Gateway) doFetch(ctx context.Context, method, target string, body []byt
 	}
 
 	// --- Atomic budget reservation (charge before sign) ---
-	token, aerr := g.authorizePayment(amountMicro, amountErr, target, pol, overrideAmountMicro, approveSeller)
+	token, aerr := g.authorizePayment(amountMicro, amountErr, target, pol, overrideAmountMicro, approved)
 	if aerr != nil {
 		audited = true
 		return nil, aerr

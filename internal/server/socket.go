@@ -87,9 +87,10 @@ type Server struct {
 	logger      *slog.Logger
 	AuditLogger *slog.Logger
 
-	// MFA wait registry + result cache (30.2b), lazily created by mfaWait().
-	mfaMu sync.Mutex
-	mfa   *mfaWait
+	// blocked remembers payments refused pending the owner's decision (49.2).
+	// It replaces the 30.2b wait: a refused request is not held open, it is
+	// listed so the owner can approve it later.
+	blocked *blockedStore
 
 	// sudoConsumed is the CDP verification stamp already spent on a spending
 	// authority raise (46.7). A verification is good for exactly one raise;
@@ -115,7 +116,7 @@ func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, 
 		return fmt.Errorf("server: listen: %w", err)
 	}
 	_ = os.Chmod(socketPath, 0o600)
-	srv := &Server{Gateway: gw, Pairing: pairing, MFA: mfa, Version: version, logger: logger, AuditLogger: auditLogger}
+	srv := &Server{Gateway: gw, Pairing: pairing, MFA: mfa, Version: version, logger: logger, AuditLogger: auditLogger, blocked: newBlockedStore(nil)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", srv.handleStatus)
 	mux.HandleFunc("GET /pause", srv.handlePause)
@@ -126,6 +127,8 @@ func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, 
 	mux.HandleFunc("POST /pair/logout", srv.handlePairLogout)
 	mux.HandleFunc("POST /fetch", srv.handleFetch)
 	mux.HandleFunc("POST /fetch-override", srv.handleFetchOverride)
+	mux.HandleFunc("/fetch-approve", srv.handleFetchApprove)
+	mux.HandleFunc("/permissions", srv.handlePermissions)
 	mux.HandleFunc("GET /policy", srv.handlePolicy)
 	mux.HandleFunc("POST /policy", srv.handlePolicy)
 	mux.HandleFunc("/mfa/enroll/init", srv.handleMfaEnrollInit)
@@ -137,10 +140,10 @@ func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, 
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		// One endpoint (/fetch, /fetch-override) legitimately waits for a human
-		// to type an MFA code (30.2b); the grace keeps the wait from being cut
-		// off. Local unix socket, trusted same-user client, few connections.
-		WriteTimeout:   mfaWaitTimeout + mfaWaitGrace,
+		// Nothing waits for a human any more (49.2): a refused payment returns
+		// immediately, so bounding the write by the upstream fetch timeout plus
+		// a small margin is enough. Local unix socket, trusted same-user client.
+		WriteTimeout:   gateway.FetchTimeout + 10*time.Second,
 		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes: 16 * 1024,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {

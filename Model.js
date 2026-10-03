@@ -87,6 +87,8 @@ var Endpoint = {
     PAIR_VERIFY: "/pair/verify",
     PAIR_LOGOUT: "/pair/logout",
     FETCH_OVERRIDE: "/fetch-override",
+    FETCH_APPROVE: "/fetch-approve",
+    PERMISSIONS: "/permissions",
     MFA_ENROLL_INIT: "/mfa/enroll/init",
     MFA_ENROLL_SUBMIT: "/mfa/enroll/submit",
     MFA_VERIFY_INIT: "/mfa/verify/init",
@@ -111,7 +113,7 @@ var USDC = "USDC"
 var USD_SYMBOL = "$"
 
 // HTTP methods for daemon socket calls.
-var Method = { GET: "GET", POST: "POST" }
+var Method = { GET: "GET", POST: "POST", DELETE: "DELETE" }
 
 // ---- Shared literals (015.1: leftovers — single source, no magic literals) ----
 
@@ -766,6 +768,58 @@ function serializeGatewayConfig(cfg) {
 }
 
 // parseStatus maps /status JSON to display fields (single cap + last_block).
+// parseBlocked turns /status.blocked (49.2 summaries) into render rows. Pure and
+// fail-closed: an entry without an id or url is skipped, never rendered with a
+// "pay" action. `status` is the object returned by parseStatus.
+function parseBlocked(status) {
+    var o = status && status.raw ? status.raw : status
+    if (!o || !Array.isArray(o.blocked)) return []
+    var out = []
+    for (var i = 0; i < o.blocked.length; i++) {
+        var b = o.blocked[i]
+        if (!b || typeof b.id !== "string" || b.id === "") continue
+        if (typeof b.url !== "string" || b.url === "") continue
+        out.push({
+            id: b.id,
+            method: String(b.method || "GET"),
+            url: b.url,
+            host: urlHost(b.url),
+            amountMicro: (typeof b.amount_micro === "number" && isFinite(b.amount_micro)) ? b.amount_micro : 0,
+            reason: String(b.reason || "")
+        })
+    }
+    return out
+}
+
+// blockedAmountText formats the blocked amount from micro-USDC.
+function blockedAmountText(amountMicro) {
+    return formatUsdExact(amountMicro / 1000000)
+}
+
+// approveBody is the POST /fetch-approve payload (pay now).
+function approveBody(id) { return JSON.stringify({ id: String(id) }) }
+
+// permissionBody is the POST /permissions payload. temporary:true requires a
+// positive ttl_seconds (the daemon enforces it too).
+function permissionBody(url, usd, temporary, ttlSeconds) {
+    return JSON.stringify({
+        url: String(url),
+        limit_micro: usdToMicro(usd),
+        temporary: temporary === true,
+        ttl_seconds: temporary === true ? Math.floor(Number(ttlSeconds) || 0) : 0
+    })
+}
+
+// validatePermission mirrors the daemon's checks for the form: empty string means
+// valid, otherwise a short reason. UX pre-check only — the daemon is the source
+// of truth.
+function validatePermission(url, usd) {
+    if (!isValidRememberedUrl(url)) return "Enter an http(s) URL"
+    var micro = usdToMicro(usd)
+    if (!isFinite(micro) || micro <= 0) return "Limit must be greater than zero"
+    return ""
+}
+
 function parseStatus(raw) {
     try {
         var o = JSON.parse(raw)

@@ -33,6 +33,7 @@ func buildGateway(cfg *config.Config, logger *slog.Logger) (*gateway.Gateway, *s
 		Budget:       budget.NewAuthority(cfg.StateDir, nil),
 		Logger:       logger,
 		Sellers:      gateway.NewSellerRegistry(cfg.StateDir),
+		Permissions:  gateway.NewPermissionStore(cfg.StateDir, nil),
 	}
 	ssrf := &gateway.SsrfGuard{}
 	ssrf.SetAllowPrivate(gw.AllowPrivate)

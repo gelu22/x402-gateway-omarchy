@@ -97,6 +97,10 @@ type Gateway struct {
 	// Sellers is the seller trust registry (013.2, TOFU). Nil = gates
 	// skipped (minimal embeds/tests; production always wires it).
 	Sellers *SellerRegistry
+	// Permissions is the daemon-side pre-approval store (49.3): a URL plus an
+	// amount cap that lifts the seller-trust/sub-cap question for that URL.
+	// Nil = no permissions (fail-closed).
+	Permissions *PermissionStore
 	// Logger receives the money audit trail (011.1, file-backed JSONL audit.log).
 	// Nil = silent (tests, minimal embeds); production wires the audit file in main.
 	Logger *slog.Logger

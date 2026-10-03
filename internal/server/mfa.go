@@ -137,9 +137,9 @@ func (s *Server) handleMfaVerifySubmit(w http.ResponseWriter, r *http.Request) {
 		if err := s.MFA.MfaVerifySubmit(ctx, code); err != nil {
 			return err
 		}
-		// A verified code completes the payment that was blocked on it (30.2b):
-		// every pending fetch retries once in the background.
-		s.mfaWait().notifyVerified()
+		// The code is verified at CDP; the wallet session it opens lets the
+		// agent's next request sign. Nothing is retried here (49.2): a refused
+		// payment is not held open, it is listed for the owner.
 		return nil
 	})
 }

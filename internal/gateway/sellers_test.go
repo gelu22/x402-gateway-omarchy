@@ -291,3 +291,42 @@ func TestSubCapIsPerHostnameNotRegistrableDomain(t *testing.T) {
 		t.Fatalf("uppercase key = %q, want a.example.com", upper)
 	}
 }
+
+// TestPermissionLiftsUnknownSellerAndSubCap (49.3): a daemon permission for the
+// exact URL lets a normal (non-override) fetch pay without the TOFU ask or the
+// per-seller share getting in the way — for every client, not just the panel.
+func TestPermissionLiftsUnknownSellerAndSubCap(t *testing.T) {
+	gw, payments := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir()) // empty → unknown seller
+	gw.Permissions = NewPermissionStore(t.TempDir(), nil)
+	srv := sellerWith(t, http.StatusOK)
+	target := srv.URL + "/content"
+	// sellerWith asks 10000; approve up to exactly that.
+	if err := gw.Permissions.Add(target, 10_000, false, 0); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := gw.Fetch(context.Background(), http.MethodGet, target, nil, nil); err != nil {
+		t.Fatalf("permission must lift the unknown-seller ask, got %v", err)
+	}
+	if payments.Load() != 1 {
+		t.Fatalf("payments = %d, want 1", payments.Load())
+	}
+}
+
+// TestPermissionAboveCapStillAsks (49.3): a permission does not auto-approve a
+// price above its cap; the seller-trust ask comes back.
+func TestPermissionAboveCapStillAsks(t *testing.T) {
+	gw, _ := newSettleGateway(t)
+	gw.Sellers = NewSellerRegistry(t.TempDir())
+	gw.Permissions = NewPermissionStore(t.TempDir(), nil)
+	srv := sellerWith(t, http.StatusOK)
+	target := srv.URL + "/content"
+	if err := gw.Permissions.Add(target, 5_000, false, 0); err != nil { // below the 10000 ask
+		t.Fatalf("Add: %v", err)
+	}
+	_, err := gw.Fetch(context.Background(), http.MethodGet, target, nil, nil)
+	var perr *PolicyError
+	if !errors.As(err, &perr) {
+		t.Fatalf("above the cap must ask, got %v", err)
+	}
+}
