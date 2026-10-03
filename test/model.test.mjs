@@ -69,6 +69,8 @@ function loadModelJS() {
       buildInfoLabel: (typeof buildInfoLabel !== "undefined") ? buildInfoLabel : undefined,
       panelDebugEnabled: (typeof panelDebugEnabled !== "undefined") ? panelDebugEnabled : undefined,
       clipboardCommand: (typeof clipboardCommand !== "undefined") ? clipboardCommand : undefined,
+      secretClipboardCommand: (typeof secretClipboardCommand !== "undefined") ? secretClipboardCommand : undefined,
+      stdinPayload: (typeof stdinPayload !== "undefined") ? stdinPayload : undefined,
       USDC: (typeof USDC !== "undefined") ? USDC : undefined,
       USD_SYMBOL: (typeof USD_SYMBOL !== "undefined") ? USD_SYMBOL : undefined,
       Method: (typeof Method !== "undefined") ? Method : undefined,
@@ -152,15 +154,41 @@ describe("Model.js", () => {
       ]);
     });
 
-    it("should build POST command with body", () => {
+    it("should build POST command with body on stdin, not argv", () => {
       const body = '{"key":"value"}';
       const cmd = Model.buildCommand("/tmp/sock", "/pause", "POST", body);
       assert.deepStrictEqual(cmd, [
         "curl", "-sS", "-m", "30", "--unix-socket", "/tmp/sock",
         "-X", "POST", "-H", "Content-Type: application/json",
-        "-d", body,
+        "--data-binary", "@-",
         "http://localhost/pause"
       ]);
+      assert.strictEqual(Model.stdinPayload(body), body);
+      assert.ok(!cmd.includes(body));
+    });
+
+    it("50.1: mfa_code and otp never appear in argv", () => {
+      const cases = [
+        JSON.stringify({ mfa_code: "123456" }),
+        JSON.stringify({ otp: "654321" }),
+      ];
+      for (const body of cases) {
+        const cmd = Model.buildCommand("gw.sock", "/submit", "POST", body);
+        assert.ok(cmd.includes("--data-binary"), body);
+        assert.ok(cmd.includes("@-"), body);
+        for (const arg of cmd) {
+          assert.ok(!arg.includes("123456"), arg);
+          assert.ok(!arg.includes("654321"), arg);
+          assert.ok(!arg.includes("mfa_code"), arg);
+          assert.ok(!arg.includes("otp"), arg);
+        }
+        assert.strictEqual(Model.stdinPayload(body), body);
+      }
+      assert.strictEqual(Model.stdinPayload(""), "");
+      assert.strictEqual(Model.stdinPayload(null), "");
+      assert.strictEqual(Model.stdinPayload(undefined), "");
+      assert.deepStrictEqual(Model.secretClipboardCommand(), ["wl-copy"]);
+      assert.ok(!Model.secretClipboardCommand().join("\0").includes("TOTPSECRETVALUE"));
     });
   });
 

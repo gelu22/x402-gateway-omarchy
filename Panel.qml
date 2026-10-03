@@ -232,6 +232,9 @@ Panel {
     }
 
     function callDaemon(path, method, body, onDone) {
+        var payload = Model.stdinPayload(body)
+        callProc.pendingBody = payload
+        callProc.stdinEnabled = payload !== ""
         callProc.command = Model.buildCommand(root.socketPath, path, method, body)
         callProc.onDone = onDone
         callProc.running = true
@@ -252,6 +255,9 @@ Panel {
     function callOverride(body, onDone) {
         // An override can wait for an MFA code (30.2b), so it gets the longer
         // socket budget instead of the generic 30 s.
+        var payload = Model.stdinPayload(body)
+        overrideProc.pendingBody = payload
+        overrideProc.stdinEnabled = payload !== ""
         overrideProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.FETCH_OVERRIDE, Model.Method.POST, body, Model.CURL_TIMEOUT_WAIT_S)
         overrideProc.onDone = onDone
         overrideProc.running = true
@@ -302,8 +308,11 @@ Panel {
         root.pausing = true
         root.errorMessage = ""
         console.warn(Model.LOG_TAG + " pause requested: " + want)
-        pauseProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.PAUSE, Model.Method.POST,
-                                               JSON.stringify({ paused: want }))
+        var pauseBody = JSON.stringify({ paused: want })
+        var pausePayload = Model.stdinPayload(pauseBody)
+        pauseProc.pendingBody = pausePayload
+        pauseProc.stdinEnabled = pausePayload !== ""
+        pauseProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.PAUSE, Model.Method.POST, pauseBody)
         pauseProc.onDone = function(raw) {
             root.pausing = false
             try {
@@ -326,16 +335,34 @@ Panel {
     Process {
         id: callProc
         property var onDone: null
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector { onStreamFinished: if (callProc.onDone) callProc.onDone(this.text) }
         stderr: StdioCollector { }
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => { if (code !== 0 && callProc.onDone) callProc.onDone(Model.daemonOffline()) }
     }
 
     Process {
         id: pauseProc
         property var onDone: null
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector { onStreamFinished: if (pauseProc.onDone) pauseProc.onDone(this.text) }
         stderr: StdioCollector { }
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => { if (code !== 0 && pauseProc.onDone) pauseProc.onDone(Model.daemonOffline()) }
     }
 
@@ -363,8 +390,17 @@ Panel {
     Process {
         id: overrideProc
         property var onDone: null
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector { onStreamFinished: if (overrideProc.onDone) overrideProc.onDone(this.text) }
         stderr: StdioCollector { }
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => { if (code !== 0 && overrideProc.onDone) overrideProc.onDone(Model.daemonOffline()) }
     }
 

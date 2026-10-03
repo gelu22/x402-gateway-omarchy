@@ -249,6 +249,23 @@ function clipboardCommand(text) {
     return ["bash", "-c", "printf %s " + shellQuote(text) + " | wl-copy"]
 }
 
+// secretClipboardCommand is the argv for copying a TOTP enrollment secret.
+// It takes no text: the secret must be written to the process stdin after
+// `started` (Quickshell Process.write), never placed in argv (/proc cmdline).
+function secretClipboardCommand() {
+    return ["wl-copy"]
+}
+
+// stdinPayload is the only string QML may pass to Process.write. Empty when
+// there is nothing to send, so callers leave stdin closed and curl does not
+// block. Never put the return value into argv.
+function stdinPayload(body) {
+    if (body === undefined || body === null) return ""
+    var s = String(body)
+    if (s.length === 0) return ""
+    return s
+}
+
 // openUrlCommand returns the argv that opens a URL in the default browser.
 // Pure (argv only), same contract as clipboardCommand. Only http(s) URLs pass:
 // xdg-open would read a leading "-" as an option (argument injection), and this
@@ -438,8 +455,10 @@ function buildCommand(socketPath, path, method, body, timeoutS) {
     var cmd = ["curl", "-sS", "-m", String(timeoutS || CURL_TIMEOUT_S),
                "--unix-socket", socketPath,
                "-X", method, "-H", "Content-Type: application/json"]
-    if (body && body.length > 0)
-        cmd.push("-d", body)
+    // Non-empty body goes through stdin (--data-binary @-), never -d.
+    // -d would both publish the bytes in argv and strip a trailing newline.
+    if (stdinPayload(body) !== "")
+        cmd.push("--data-binary", "@-")
     cmd.push("http://localhost" + path)
     return cmd
 }

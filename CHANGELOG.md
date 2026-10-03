@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.19] — 2026-10-03
+
+### Security
+
+- **Secrets no longer travel in process arguments.** The permanent TOTP enrollment secret was copied with `bash -c`, and MFA codes plus other credential-bearing request bodies were passed to `curl` with `-d`, so another local user could read them from `/proc/<pid>/cmdline`. The panel now writes the secret to `wl-copy` on stdin, and every non-empty daemon request body goes to `curl --data-binary @-` on stdin; the write channel is closed afterwards so the reader sees EOF. Copying a wallet address or a URL is unchanged and still uses the quoted clipboard command. Pinned by a ratchet: an `{mfa_code}` or `{otp}` body is absent from the curl argv, and the secret-copy command is exactly `wl-copy` with no text argument.
+
 ## [0.1.18] — 2026-10-01
 
 ### Security

@@ -25,7 +25,16 @@ Column {
     // the pending callback (019.1 lesson).
     Process {
         id: approveProc
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector {}
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => {
             if (code === 0) { root.refresh() } else { root.failed("Could not pay (code " + code + ") — check the daemon journal") }
         }
@@ -37,14 +46,27 @@ Column {
     }
     Process {
         id: permitProc
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector {}
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => {
             if (code === 0) { root.refresh() } else { root.failed("Could not add the permission (code " + code + ")") }
         }
     }
 
     function payNow(row) {
-        approveProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.FETCH_APPROVE, Model.Method.POST, Model.approveBody(row.id))
+        var body = Model.approveBody(row.id)
+        var payload = Model.stdinPayload(body)
+        approveProc.pendingBody = payload
+        approveProc.stdinEnabled = payload !== ""
+        approveProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.FETCH_APPROVE, Model.Method.POST, body)
         approveProc.running = true
     }
     function dismiss(row) {
@@ -53,8 +75,11 @@ Column {
         dismissProc.running = true
     }
     function allow(row) {
-        permitProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.PERMISSIONS, Model.Method.POST,
-            Model.permissionBody(row.url, Model.microToUsd(row.amountMicro), false, 0))
+        var body = Model.permissionBody(row.url, Model.microToUsd(row.amountMicro), false, 0)
+        var payload = Model.stdinPayload(body)
+        permitProc.pendingBody = payload
+        permitProc.stdinEnabled = payload !== ""
+        permitProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.PERMISSIONS, Model.Method.POST, body)
         permitProc.running = true
     }
 

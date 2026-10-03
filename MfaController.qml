@@ -63,26 +63,71 @@ QtObject {
     property Process policyProc: Process {
         id: policyProcess
         property var onDone: null
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector { onStreamFinished: if (policyProcess.onDone) policyProcess.onDone(this.text) }
         stderr: StdioCollector { }
+        // 50.1: write only after started (write before that is a no-op), then
+        // close stdin so curl --data-binary @- sees EOF.
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => { if (code !== 0 && policyProcess.onDone) policyProcess.onDone(Model.daemonOffline()) }
     }
 
     property Process mfaProc: Process {
         id: mfaProcess
         property var onDone: null
+        property string pendingBody: ""
+        stdinEnabled: false
         stdout: StdioCollector { onStreamFinished: if (mfaProcess.onDone) mfaProcess.onDone(this.text) }
         stderr: StdioCollector { }
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
+                stdinEnabled = false
+            }
+        }
         onExited: (code) => { if (code !== 0 && mfaProcess.onDone) mfaProcess.onDone(Model.daemonOffline()) }
     }
 
+    // Dedicated process: sharing mfaProc would let a copy clobber a code submit
+    // (019.1). The secret is written to stdin, never passed as an argument.
+    // QtObject has no default property, so this must be a declared property
+    // (same shape as policyProc/mfaProc), not a child object.
+    property Process copyProc: Process {
+        id: copyProcess
+        stdinEnabled: false
+        onStarted: {
+            if (secret !== "") {
+                write(secret)
+                stdinEnabled = false
+            }
+        }
+        onExited: (code) => {
+            if (code !== 0)
+                errorTextRequested("Could not copy the authenticator secret")
+        }
+    }
+
     function callPolicy(body, onDone) {
+        var payload = Model.stdinPayload(body)
+        policyProc.pendingBody = payload
+        policyProc.stdinEnabled = payload !== ""
         policyProc.command = Model.buildCommand(socketPath, Model.Endpoint.POLICY, Model.Method.POST, body)
         policyProc.onDone = onDone
         policyProc.running = true
     }
 
     function callMfa(path, body, onDone) {
+        var payload = Model.stdinPayload(body)
+        mfaProc.pendingBody = payload
+        mfaProc.stdinEnabled = payload !== ""
         mfaProc.command = Model.buildCommand(socketPath, path, Model.Method.POST, body)
         mfaProc.onDone = onDone
         mfaProc.running = true
@@ -236,8 +281,10 @@ QtObject {
     }
 
     function copyMfaSecret() {
-        if (secret !== "")
-            Quickshell.execDetached(Model.clipboardCommand(secret))
+        if (secret === "") return
+        copyProc.command = Model.secretClipboardCommand()
+        copyProc.stdinEnabled = true
+        copyProc.running = true
     }
 
     function openMfaReset() {
