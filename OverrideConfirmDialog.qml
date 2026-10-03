@@ -2,6 +2,7 @@
 // payments. Unique name avoids collision with qs.Ui.ConfirmDialog.
 // Uses only QtQuick + qs kit components (no QtQuick.Layouts/Controls imports).
 import Quickshell
+import Quickshell.Io
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -174,7 +175,10 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: if (root.targetUrl && !root.busy) {
-                        Quickshell.execDetached(Model.clipboardCommand(root.targetUrl))
+                        urlCopyProc.pendingText = Model.clipboardStdin(root.targetUrl)
+                        urlCopyProc.command = Model.clipboardCommand(root.targetUrl)
+                        urlCopyProc.stdinEnabled = true
+                        urlCopyProc.running = true
                         root.urlCopied = true
                     }
                 }
@@ -184,6 +188,22 @@ Item {
                 interval: root.copyFeedbackMs
                 running: root.urlCopied
                 onTriggered: root.urlCopied = false
+            }
+
+            // Seller URL on stdin, argv ["wl-copy"]. Non-zero exit drops the
+            // green flash. The URL is not logged.
+            Process {
+                id: urlCopyProc
+                property string pendingText: ""
+                stdinEnabled: false
+                onStarted: {
+                    if (pendingText !== "") {
+                        write(pendingText)
+                        pendingText = ""
+                        stdinEnabled = false
+                    }
+                }
+                onExited: (code) => { if (code !== 0) root.urlCopied = false }
             }
 
             Row {

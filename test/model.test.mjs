@@ -27,7 +27,6 @@ function loadModelJS() {
       parseStatus,
       parseOverrideError,
       parseLogoutResponse: (typeof parseLogoutResponse !== "undefined") ? parseLogoutResponse : undefined,
-      shellQuote,
       statusColor,
       heroState,
       overBudgetAlert,
@@ -69,6 +68,7 @@ function loadModelJS() {
       buildInfoLabel: (typeof buildInfoLabel !== "undefined") ? buildInfoLabel : undefined,
       panelDebugEnabled: (typeof panelDebugEnabled !== "undefined") ? panelDebugEnabled : undefined,
       clipboardCommand: (typeof clipboardCommand !== "undefined") ? clipboardCommand : undefined,
+      clipboardStdin: (typeof clipboardStdin !== "undefined") ? clipboardStdin : undefined,
       secretClipboardCommand: (typeof secretClipboardCommand !== "undefined") ? secretClipboardCommand : undefined,
       stdinPayload: (typeof stdinPayload !== "undefined") ? stdinPayload : undefined,
       USDC: (typeof USDC !== "undefined") ? USDC : undefined,
@@ -104,30 +104,6 @@ function loadModelJS() {
     };
   `);
   return module.exports;
-}
-
-// Decodes a string made only of POSIX single-quoted segments (including the
-// '\'' idiom for a literal quote) back to its raw value. Returns null when the
-// quoting is malformed. Test-side only: it must NOT reuse shellQuote, so the
-// assertion stays independent of the production implementation.
-function decodeShellSingleQuoted(q) {
-  if (typeof q !== "string" || q === "") return null;
-  let out = "";
-  let i = 0;
-  while (i < q.length) {
-    if (q[i] !== "'") return null; // outside a quoted segment
-    const close = q.indexOf("'", i + 1);
-    if (close === -1) return null; // unterminated
-    out += q.slice(i + 1, close);
-    i = close + 1;
-    if (q.startsWith("\\'", i)) { out += "'"; i += 2; } // '\'' escape
-  }
-  return out;
-}
-
-// Quotes left after removing every '\'' escape must pair up (0 unpaired).
-function unpairedQuotes(q) {
-  return ((q.replace(/'\\''/g, "").match(/'/g) || []).length) % 2;
 }
 
 let Model;
@@ -884,9 +860,10 @@ describe("Model.js", () => {
       assert.notStrictEqual(st.spend_today, Model.formatUsd(0.0004, Model.Precision.SPEND));
     });
 
-    it("clipboardCommand neutralises every hostile payload", () => {
+    it("clipboardCommand keeps hostile payloads off argv and on stdin", () => {
       // Real path: a seller-controlled URL reaches the clipboard through
-      // OverrideConfirmDialog -> Model.clipboardCommand -> bash -c.
+      // OverrideConfirmDialog -> clipboardStdin -> wl-copy stdin. There is
+      // no shell, so these strings are data, not a script.
       const hostile = [
         "$(id)", "`id`", "a\nb", "a;rm -rf ~", "a|wl-copy", "a&b", "a>b",
         "a'b", "a'\\''b", "\\", '"', "a b", "--help", "-x", "'",
@@ -894,26 +871,21 @@ describe("Model.js", () => {
       ];
       for (const payload of hostile) {
         const argv = Model.clipboardCommand(payload);
-        assert.strictEqual(argv[0], "bash", payload);
-        assert.strictEqual(argv[1], "-c", payload);
-        assert.ok(argv[2].startsWith("printf %s "), payload);
-        assert.ok(argv[2].endsWith(" | wl-copy"), payload);
-        const quoted = argv[2].slice("printf %s ".length, -" | wl-copy".length);
-        assert.strictEqual(decodeShellSingleQuoted(quoted), payload, payload);
-        assert.strictEqual(unpairedQuotes(quoted), 0, payload);
+        assert.deepStrictEqual(argv, ["wl-copy"], payload);
+        assert.ok(!argv.some((part) => String(part).includes(payload)), payload);
+        assert.strictEqual(Model.clipboardStdin(payload), payload);
       }
     });
 
     it("clipboardCommand returns a safe argv", () => {
       assert.strictEqual(Model.clipboardCommand(""), null);
       assert.strictEqual(Model.clipboardCommand(null), null);
-      // fail-closed: no input, no bash -c at all
-      assert.strictEqual(Model.clipboardCommand(""), null);
-      assert.deepStrictEqual(Model.clipboardCommand("https://a.example/x"),
-        ["bash", "-c", "printf %s 'https://a.example/x' | wl-copy"]);
-      // Single quote is escaped (shellQuote) so the URL can't break out.
-      assert.deepStrictEqual(Model.clipboardCommand("a'b"),
-        ["bash", "-c", "printf %s 'a'\\''b' | wl-copy"]);
+      assert.strictEqual(Model.clipboardStdin(""), "");
+      assert.strictEqual(Model.clipboardStdin(null), "");
+      assert.deepStrictEqual(Model.clipboardCommand("https://a.example/x"), ["wl-copy"]);
+      assert.strictEqual(Model.clipboardStdin("https://a.example/x"), "https://a.example/x");
+      assert.deepStrictEqual(Model.clipboardCommand("a'b"), ["wl-copy"]);
+      assert.strictEqual(Model.clipboardStdin("a'b"), "a'b");
     });
 
     it("statusColor/stateLabel return exact per-state values", () => {

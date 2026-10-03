@@ -293,7 +293,10 @@ Panel {
     function copyAddress() {
         var clean = root.walletAddress.replace(/[^0-9a-fA-Fx]/g, "")
         if (clean === "") return
-        Quickshell.execDetached(Model.clipboardCommand(clean))
+        addressCopyProc.pendingText = Model.clipboardStdin(clean)
+        addressCopyProc.command = Model.clipboardCommand(clean)
+        addressCopyProc.stdinEnabled = true
+        addressCopyProc.running = true
     }
 
     // setPaused flips the daemon pause flag through a DEDICATED process
@@ -330,6 +333,36 @@ Panel {
             }
         }
         pauseProc.running = true
+    }
+
+    // Clipboard copies do not share pendingText (019.1): address and the
+    // MFA portal URL are different operations. Text is written on stdin after
+    // started; argv stays ["wl-copy"]. A missing wl-copy stays silent here
+    // (no copied text in errorMessage).
+    Process {
+        id: addressCopyProc
+        property string pendingText: ""
+        stdinEnabled: false
+        onStarted: {
+            if (pendingText !== "") {
+                write(pendingText)
+                pendingText = ""
+                stdinEnabled = false
+            }
+        }
+    }
+
+    Process {
+        id: portalCopyProc
+        property string pendingText: ""
+        stdinEnabled: false
+        onStarted: {
+            if (pendingText !== "") {
+                write(pendingText)
+                pendingText = ""
+                stdinEnabled = false
+            }
+        }
     }
 
     Process {
@@ -793,7 +826,14 @@ Panel {
         busy: mfa.busy
         onSubmitCode: function(code) { mfa.submitMfaCode(code) }
         onCopySecret: function() { mfa.copyMfaSecret() }
-        onCopyPortalUrl: function() { Quickshell.execDetached(Model.clipboardCommand(Model.MFA_RESET_URL)) }
+        onCopyPortalUrl: function() {
+            var text = Model.clipboardStdin(Model.MFA_RESET_URL)
+            if (text === "") return
+            portalCopyProc.pendingText = text
+            portalCopyProc.command = Model.clipboardCommand(Model.MFA_RESET_URL)
+            portalCopyProc.stdinEnabled = true
+            portalCopyProc.running = true
+        }
         onOpenPortal: function() { Quickshell.execDetached(Model.openUrlCommand(Model.MFA_RESET_URL)) }
         onDismissed: function() { mfa.closeMfaDialog() }
     }

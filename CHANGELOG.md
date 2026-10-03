@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.20] — 2026-10-03
+
+### Security
+
+- **Clipboard copies no longer put the text in process arguments.** A wallet address and http(s) URLs (the MFA reset portal and the seller URL) were still copied with `bash -c` and `printf`, so another local user could read them from `/proc/<pid>/cmdline`. They now use the same path as the TOTP secret: the argv is exactly `wl-copy`, and the text is written on stdin. Opening a URL with `xdg-open` is unchanged.
+
 ## [0.1.19] — 2026-10-03
 
 ### Security

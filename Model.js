@@ -242,11 +242,19 @@ function panelDebugEnabled(envVal) {
 }
 
 // clipboardCommand returns the argv that copies text to the Wayland
-// clipboard (caller runs Quickshell.execDetached). Pure — .pragma library
-// cannot touch Quickshell, so we return argv like buildCommand does.
+// clipboard. The text is NOT in argv: the caller writes clipboardStdin(text)
+// to the process stdin after `started` (same path as the TOTP secret).
+// Pure — .pragma library cannot touch Quickshell.
 function clipboardCommand(text) {
     if (!text) return null
-    return ["bash", "-c", "printf %s " + shellQuote(text) + " | wl-copy"]
+    return secretClipboardCommand()
+}
+
+// clipboardStdin is the only string a clipboard Process may write. Empty
+// when there is nothing to copy. Never put this return value into argv.
+function clipboardStdin(text) {
+    if (!text) return ""
+    return String(text)
 }
 
 // secretClipboardCommand is the argv for copying a TOTP enrollment secret.
@@ -267,9 +275,9 @@ function stdinPayload(body) {
 }
 
 // openUrlCommand returns the argv that opens a URL in the default browser.
-// Pure (argv only), same contract as clipboardCommand. Only http(s) URLs pass:
-// xdg-open would read a leading "-" as an option (argument injection), and this
-// function is exported, so the guard belongs here, not at the call sites.
+// This is not a clipboard copy: xdg-open takes the URL as an argument.
+// Only http(s) URLs pass — a leading "-" would be an option (argument
+// injection), and this function is exported, so the guard belongs here.
 function openUrlCommand(url) {
     if (!isValidRememberedUrl(url)) return null
     return ["xdg-open", String(url)]
@@ -877,12 +885,6 @@ function parseStatus(raw) {
                  balance_usd: formatUsdExact(0), address: "", block_text: "",
                  mfa_enrolled: false, mfa_method: "", raw: null }
     }
-}
-
-// shellQuote wraps s in single quotes for safe argv-free shell interpolation
-// (e.g. printf %s ... | wl-copy). Pure function — no I/O.
-function shellQuote(s) {
-    return "'" + String(s || "").replace(/'/g, "'\\''") + "'"
 }
 
 // parseLogoutResponse classifies a POST /pair/logout raw body (019.1).
