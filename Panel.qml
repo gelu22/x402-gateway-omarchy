@@ -64,11 +64,12 @@ Panel {
     // Plugin release stamp (41.3) from the bundle's build-info.json; "" when the
     // file is absent (older installs), so the footer row stays clean.
     property string pluginStamp: ""
+    // Short SETUP stamp (52.16): "plugin vX.Y.Z" without sha; "" when absent.
+    property string pluginVersion: ""
     // Poll interval for auto-refresh while open (tunable in one place).
     property int pollIntervalMs: 15000
 
-    // Account / Advanced disclosures: session-only (reset on shell restart).
-    property bool accountExpanded: false
+    // SETUP disclosure: session-only (reset on each open/close).
     property bool advancedExpanded: false
     // Version stamp is debug-only (43.4); fail-closed without GATEWAY_PANEL_DEBUG=1.
     readonly property bool panelDebug: Model.panelDebugEnabled(Quickshell.env("GATEWAY_PANEL_DEBUG"))
@@ -119,8 +120,18 @@ Panel {
         onOverrideReplayRequested: (po, remember, approved) => root.payOverride(po, remember, approved)
     }
 
-    function open() { root.controller.show(); root.refresh() }
-    function close() { root.pendingOverride = null; root.priceChangeFrom = null; mfa.closeMfaDialog(); root.controller.hide() }
+    function open() {
+        root.advancedExpanded = false
+        root.controller.show()
+        root.refresh()
+    }
+    function close() {
+        root.advancedExpanded = false
+        root.pendingOverride = null
+        root.priceChangeFrom = null
+        mfa.closeMfaDialog()
+        root.controller.hide()
+    }
     function switchPanel(direction) {
         if (root.bar && typeof root.bar.switchPanelFrom === "function")
             return root.bar.switchPanelFrom(root.hostWidget || root, direction)
@@ -299,6 +310,12 @@ Panel {
         addressCopyProc.running = true
     }
 
+    // Shared by Account and Remembered overrides (52.11) — one editor path.
+    function openConfigEditor() {
+        if (root.configPath === "") return
+        Quickshell.execDetached(["omarchy", "launch", "config", "editor", root.configPath])
+    }
+
     // setPaused flips the daemon pause flag through a DEDICATED process
     // (never the shared callProc — a concurrent /status refresh must not
     // swallow the pause call). No optimistic flip: the knob follows daemon
@@ -453,13 +470,21 @@ Panel {
 
     // Release stamp (41.3): build-info.json shipped next to this panel by the
     // bundle. Missing or malformed → "" → no stamp row (an install from before
-    // 41.3 must not error). Read-only; formatting lives in Model.buildInfoLabel.
+    // 41.3 must not error). Read-only; formatting lives in Model.buildInfoLabel /
+    // pluginVersionLabel (52.16 short SETUP line).
     FileView {
         id: buildInfoFile
         path: Qt.resolvedUrl("build-info.json")
         printErrors: false
-        onLoaded: root.pluginStamp = Model.buildInfoLabel(text())
-        onLoadFailed: root.pluginStamp = ""
+        onLoaded: {
+            var raw = text()
+            root.pluginStamp = Model.buildInfoLabel(raw)
+            root.pluginVersion = Model.pluginVersionLabel(raw)
+        }
+        onLoadFailed: {
+            root.pluginStamp = ""
+            root.pluginVersion = ""
+        }
     }
 
     function applyConfig(raw) {
@@ -601,43 +626,36 @@ Panel {
 
             PanelSeparator { visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online }
 
-            // ---- Account: collapsed summary + Open config / MFA / logout (43.3) ----
-            WalletSection {
-                visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online
-                walletAddress: root.walletAddress
-                paymentNetwork: root.paymentNetwork
-                mfaEnrolled: root.mfaEnrolled
-                mfaMethod: root.mfaMethod
-                busy: root.busy
-                mfaBusy: mfa.busy
-                configPath: root.configPath
-                expanded: root.accountExpanded
-                onToggle: root.accountExpanded = !root.accountExpanded
-                onCopyAddress: function() { root.copyAddress() }
-                onOpenConfig: function() {
-                    if (root.configPath === "") return
-                    Quickshell.execDetached(["omarchy", "launch", "config", "editor", root.configPath])
-                }
-                onStartMfaEnroll: function() { mfa.startMfaEnroll() }
-                onOpenMfaReset: function() { mfa.openMfaReset() }
-                onRequestLogout: function() { root.confirmLogoutDialog = true }
-            }
-
-            PanelSeparator { visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online }
-
-            // ---- Advanced: AI Agents + Remembered overrides (flat, 43.4) ----
+            // ---- SETUP: Account + AI Agents + Remembered overrides (52.13) ----
             CollapsibleSection {
                 visible: root.walletAddress !== "" && root.step !== 0 && root.step !== 1 && root.online
                 width: parent.width
-                title: "ADVANCED"
-                iconText: Model.ICON_AGENTS
+                title: "SETUP"
+                iconText: Model.ICON_SETUP
+                showChevron: false
+                bodyIndent: Style.space(18)
                 expanded: root.advancedExpanded
                 onToggle: root.advancedExpanded = !root.advancedExpanded
 
-                // Static CAPS label (no nested ▸) — list lives in AgentSection.
+                // Flat Account block (no nested ▸) — Budgets/Agents language.
+                WalletSection {
+                    width: parent.width
+                    walletAddress: root.walletAddress
+                    paymentNetwork: root.paymentNetwork
+                    mfaEnrolled: root.mfaEnrolled
+                    mfaMethod: root.mfaMethod
+                    busy: root.busy
+                    mfaBusy: mfa.busy
+                    onCopyAddress: function() { root.copyAddress() }
+                    onStartMfaEnroll: function() { mfa.startMfaEnroll() }
+                    onOpenMfaReset: function() { mfa.openMfaReset() }
+                    onRequestLogout: function() { root.confirmLogoutDialog = true }
+                }
+
+                // Static CAPS label — list lives in AgentSection.
                 Text {
                     text: "AI AGENTS"
-                    color: Qt.darker(Color.foreground, 1.4)
+                    color: Qt.darker(Color.foreground, 1.45)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
                     font.letterSpacing: 1
@@ -664,6 +682,19 @@ Panel {
                     id: overrideSection
                     width: parent.width
                     count: root.rememberedUrls.length
+                    configPath: root.configPath
+                    onOpenConfig: function() { root.openConfigEditor() }
+                }
+
+                // Installed plugin version (52.16): compare with catalog/Releases;
+                // update remains attested install.sh (not omarchy plugin update).
+                Text {
+                    width: parent.width
+                    visible: root.pluginVersion !== ""
+                    text: root.pluginVersion
+                    color: Color.foreground
+                    opacity: 0.55
+                    font.pixelSize: Style.font.caption
                 }
             }
 

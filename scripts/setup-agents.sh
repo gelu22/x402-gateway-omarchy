@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # setup-agents.sh — opt-in MCP integration for detected AI agents.
 # Modes:
-#   (interactive)            T/N per detected agent (terminal use)
-#   --detect                 JSON {agents:[{name,path,format,integrated}]} on stdout
+#   (interactive)            T/N per detected connectable agent (terminal use)
+#   --detect                 JSON {agents:[{name,path,format,integrated,connectable}]} on stdout
 #   --apply opencode,cursor  non-interactive full pipeline per listed agent
 #   --remove opencode,cursor remove the injected MCP block per listed agent
 # Safety rules (all modes): backup before write, validate after write,
 # automatic rollback on validation failure. Zero silent writes.
+# Detection never executes agent launchers. Presence = Omarchy present:
+# non-stub bin under ~/.local/bin, or `mise where <package>` (never `mise use`).
 set -euo pipefail
 
 GATEWAY_BIN="${GATEWAY_BIN:-${HOME}/.local/bin/gateway}"
 SOCKET_PATH="${GATEWAY_SOCKET_PATH:-${XDG_STATE_DIR:-$HOME/.local/state}/x402-gateway/gw.sock}"
 SERVER_KEY="${SERVER_KEY:-x402-gateway}"
 
+# Literal detect order: five connectable writers first, then detect-only launchers.
+DETECT_NAMES=(
+  opencode claude-code cursor codex gemini
+  pi omp grok copilot crush openclaw hermes muse cursor-agent ori agy
+)
+
 command -v python3 >/dev/null || { echo "ERROR: python3 required"; exit 1; }
 
-# Known agents: name → "path|format"
+# Known connectable agents: name → config path (empty = detect-only / unknown).
 agent_path() {
   case "$1" in
     opencode)    echo "$HOME/.config/opencode/opencode.json";;
@@ -31,6 +39,74 @@ agent_format() {
     codex) echo "toml";;
     *)     echo "json";;
   esac
+}
+
+# Binary name under ~/.local/bin (cursor writer uses Cursor CLI launcher).
+agent_launcher() {
+  case "$1" in
+    opencode)                         echo "opencode";;
+    claude-code)                      echo "claude";;
+    cursor)                           echo "cursor-agent";;
+    codex)                            echo "codex";;
+    gemini)                           echo "gemini";;
+    pi|omp|grok|copilot|crush|openclaw|hermes|muse|cursor-agent|ori|agy)
+                                      echo "$1";;
+    *)                                echo "";;
+  esac
+}
+
+# mise package id (Omarchy omarchy-default-agent map). Empty → no mise where.
+agent_package() {
+  case "$1" in
+    claude-code) echo "claude";;
+    cursor)      echo "cursor-agent";;
+    grok)        echo "npm:@xai-official/grok";;
+    omp)         echo "github:can1357/oh-my-pi";;
+    muse)        echo "http:muse[url=https://api.meta.ai/muse-launcher.sh,bin=muse,version_list_url=https://api.meta.ai/muse-code/channels/muse-stable,version_json_path=.version]";;
+    hermes|openclaw) echo "";;
+    *)           agent_launcher "$1";;
+  esac
+}
+
+agent_installer() {
+  case "$1" in
+    hermes)   echo "omarchy-install-hermes-cli";;
+    openclaw) echo "omarchy-install-openclaw-cli";;
+    *)        echo "";;
+  esac
+}
+
+# Omarchy user_install: symlink-to-file or non-stub file (cold stub has `mise use -g`).
+# Symlink-to-directory is not a launcher (stricter than Omarchy; avoids false present).
+user_bin_installed() {
+  local bin="$1" p
+  [ -n "$bin" ] || return 1
+  p="$HOME/.local/bin/$bin"
+  [ -x "$p" ] || return 1
+  if [ -L "$p" ]; then
+    [ -f "$p" ] || return 1
+    return 0
+  fi
+  [ -f "$p" ] || return 1
+  ! grep -q '^mise use -g' "$p"
+}
+
+# Really installed = Omarchy agent_present (never exec launcher / never mise use).
+really_installed() {
+  local name="$1" launcher pkg installer
+  launcher="$(agent_launcher "$name")"
+  installer="$(agent_installer "$name")"
+  if [ -n "$installer" ]; then
+    if command -v "$installer" >/dev/null 2>&1; then
+      "$installer" --check >/dev/null 2>&1 && return 0
+    fi
+    return 1
+  fi
+  user_bin_installed "$launcher" && return 0
+  pkg="$(agent_package "$name")"
+  [ -n "$pkg" ] || return 1
+  command -v mise >/dev/null 2>&1 || return 1
+  mise where "$pkg" >/dev/null 2>&1
 }
 
 is_integrated() {
@@ -239,20 +315,45 @@ remove_one() {
 }
 
 cmd_detect() {
-  printf '{"agents":['
-  local first=1 name file
-  for name in opencode claude-code cursor codex gemini; do
-    file="$(agent_path "$name")"
-    [ -n "$file" ] || continue
-    [ -f "$file" ] || continue
-    [ $first -eq 1 ] || printf ','
-    first=0
-    if is_integrated "$file"; then integrated=true; else integrated=false; fi
-    printf '{"name":"%s","path":"%s","format":"%s","integrated":%s}' \
-      "$name" "$file" "$(agent_format "$name")" "$integrated"
-  done
-  printf ']}'
-  echo
+  # Emit one TSV row per visible agent; python3 json.dumps keeps HOME-safe JSON.
+  # Columns: name, path, format, integrated, connectable
+  # Presence: really_installed (Omarchy) OR already integrated — never cold stub alone.
+  local name file integrated emitted_cursor=0
+  {
+    for name in "${DETECT_NAMES[@]}"; do
+      if [ "$name" = "cursor-agent" ] && [ "$emitted_cursor" -eq 1 ]; then
+        continue
+      fi
+      file="$(agent_path "$name")"
+      integrated=false
+      if [ -n "$file" ] && [ -f "$file" ] && is_integrated "$file"; then
+        integrated=true
+      fi
+      if [ -n "$file" ]; then
+        really_installed "$name" || [ "$integrated" = true ] || continue
+        printf '%s\t%s\t%s\t%s\ttrue\n' \
+          "$name" "$file" "$(agent_format "$name")" "$integrated"
+        if [ "$name" = "cursor" ]; then emitted_cursor=1; fi
+      else
+        really_installed "$name" || continue
+        printf '%s\t\t\tfalse\tfalse\n' "$name"
+      fi
+    done
+  } | python3 -c '
+import json, sys
+agents = []
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    name, path, fmt, integrated, connectable = line.split("\t")
+    agents.append({
+        "name": name,
+        "path": path,
+        "format": fmt,
+        "integrated": integrated == "true",
+        "connectable": connectable == "true",
+    })
+print(json.dumps({"agents": agents}, separators=(",", ":")))
+'
 }
 
 cmd_apply() {
@@ -289,16 +390,32 @@ cmd_interactive() {
   echo "  command: $GATEWAY_BIN -mcp"
   echo "  socket:  $SOCKET_PATH"
   echo
-  local any=0 name file
-  for name in opencode claude-code cursor codex gemini; do
+  local any=0 name file integrated
+  for name in "${DETECT_NAMES[@]}"; do
     file="$(agent_path "$name")"
-    [ -n "$file" ] && [ -f "$file" ] && { echo "Found: $name ($file)"; any=1; }
+    integrated=false
+    if [ -n "$file" ] && [ -f "$file" ] && is_integrated "$file"; then
+      integrated=true
+    fi
+    if [ -n "$file" ]; then
+      really_installed "$name" || [ "$integrated" = true ] || continue
+      if [ -f "$file" ]; then
+        echo "Found: $name ($file)"
+      else
+        echo "Found: $name (installed, no config yet)"
+      fi
+      any=1
+    elif really_installed "$name"; then
+      echo "Found: $name — installed, not auto-connected"
+    fi
   done
-  [ $any -eq 0 ] && { echo "No known agent configs found."; exit 0; }
+  [ $any -eq 0 ] && { echo "No connectable agents found."; exit 0; }
   echo
   for name in opencode claude-code cursor codex gemini; do
     file="$(agent_path "$name")"
-    [ -n "$file" ] && [ -f "$file" ] || continue
+    integrated=false
+    if [ -f "$file" ] && is_integrated "$file"; then integrated=true; fi
+    really_installed "$name" || [ "$integrated" = true ] || continue
     printf "Integrate %s? [y/N] " "$name"
     read -r answer
     case "$answer" in

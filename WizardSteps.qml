@@ -61,7 +61,7 @@ Column {
         width: parent.width
         spacing: Style.space(6)
 
-        PanelSectionHeader { text: "Daily budget (USD)" }
+        PanelSectionHeader { text: "Daily budget (USDC)" }
 
         Column {
             spacing: Style.space(2)

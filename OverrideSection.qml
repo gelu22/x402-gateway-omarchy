@@ -1,6 +1,5 @@
-// OverrideSection.qml — remembered over-budget approvals: count + empty state.
-// Open config lives in Account (43.3). Empty-state hint only — no config-path
-// prose (removed in 43.4). List file: ~/.config/omarchy/x402-gateway/config.json.
+// OverrideSection.qml — remembered over-budget approvals: count + empty state
+// + Edit in config (52.11/52.13). Sole SETUP path to config.json.
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -10,18 +9,23 @@ Column {
     id: root
 
     property int count: 0
+    property string configPath: ""
+
+    signal openConfig()
+
+    readonly property color formMuted: Qt.darker(Color.foreground, 1.45)
 
     width: parent ? parent.width : 0
-    spacing: Style.space(4)
+    spacing: Style.space(8)
 
     Row {
         width: parent.width
-        spacing: Style.space(8)
+        spacing: Style.space(6)
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: Model.ICON_URLS
-            color: Color.foreground
+            color: root.formMuted
             font.family: Style.font.family
             font.pixelSize: Style.font.icon
         }
@@ -29,7 +33,7 @@ Column {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: ("Remembered overrides (" + root.count + ")").toUpperCase()
-            color: Qt.darker(Color.foreground, 1.4)
+            color: root.formMuted
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
             font.letterSpacing: 1
@@ -43,9 +47,15 @@ Column {
         width: parent.width
         visible: root.count === 0
         text: "No remembered URLs — auto-pay always asks."
-        color: Color.foreground
-        opacity: 0.7
+        color: root.formMuted
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
+    }
+
+    Button {
+        text: "Edit in config"
+        enabled: root.configPath !== ""
+        tooltipText: root.configPath !== "" ? root.configPath : "Config path unavailable"
+        onClicked: root.openConfig()
     }
 }

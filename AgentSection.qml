@@ -172,16 +172,30 @@ Item {
                 }
 
                 Button {
-                    visible: !modelData.integrated
+                    visible: modelData.connectable !== false && !modelData.integrated
                     enabled: !root.busy
                     text: root.busy ? root.busyLabel : "Integrate"
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(4)
+                    verticalPadding: Style.space(2)
                     onClicked: root.integrate(modelData.name)
                 }
 
+                Text {
+                    visible: modelData.connectable === false && !modelData.integrated
+                    text: "Installed — no auto-connect"
+                    color: Color.foreground
+                    font.pixelSize: Style.font.caption
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
                 Button {
-                    visible: modelData.integrated
+                    visible: modelData.integrated === true
                     enabled: !root.busy
                     text: root.busy ? root.busyLabel : "Remove"
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(4)
+                    verticalPadding: Style.space(2)
                     onClicked: root.remove(modelData.name)
                 }
             }

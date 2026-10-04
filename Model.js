@@ -123,9 +123,10 @@ var ICON_WALLET = "\uF09D"
 
 // Section identity glyphs (40.2): Nerd Font (Font Awesome) codepoints, kept
 // beside ICON_WALLET so every section icon lives in one place.
-var ICON_BUDGET = "\uF53E"   // nf-fa-coins — daily budget & spend
+var ICON_BUDGET = "\uF0D6"   // nf-fa-money — classic FA (F53E coins is tofu on Omarchy Nerd Font)
 var ICON_AGENTS = "\uF0C0"   // nf-fa-users — AI agent integration
 var ICON_URLS = "\uF0C1"     // nf-fa-link — remembered overrides
+var ICON_SETUP = "\uF013"    // nf-fa-cog — SETUP section (classic FA; not agents icon)
 
 // AGENT_SCRIPT_MISSING is the shared failure text when setup-agents.sh is
 // absent (detect/integrate/remove all surface the same actionable message).
@@ -234,6 +235,20 @@ function buildInfoLabel(raw) {
     return sha !== "" ? "plugin v" + v + " (" + sha + ")" : "plugin v" + v
 }
 
+// pluginVersionLabel is the short SETUP stamp: "plugin vX.Y.Z" without sha
+// (compare with catalog / Releases). Same fail-closed empty cases as buildInfoLabel.
+function pluginVersionLabel(raw) {
+    if (raw === undefined || raw === null) return ""
+    var s = String(raw).trim()
+    if (s === "") return ""
+    var o = null
+    try { o = JSON.parse(s) } catch (e) { return "" }
+    if (!o || typeof o !== "object") return ""
+    var v = String(o.version || "").trim()
+    if (v === "") return ""
+    return "plugin v" + v
+}
+
 // panelDebugEnabled gates the panel version stamp (43.4). Fail-closed: only
 // the exact string "1" enables it; missing/empty/other values stay hidden.
 function panelDebugEnabled(envVal) {
@@ -307,6 +322,17 @@ function mfaLabel(mfaEnrolled, method) {
     if (mfaEnrolled !== true) return "MFA: off — recommended"
     var m = String(method || "").toUpperCase()
     return m !== "" ? "MFA: on (" + m + ")" : "MFA: on"
+}
+
+// accountNetworkLine is the ACCOUNT fact line (52.13): network · short
+// address. Empty segments omitted (no stray " · ").
+function accountNetworkLine(network, address) {
+    var parts = []
+    var net = networkLabel(network)
+    var addr = shortAddress(address)
+    if (net !== "") parts.push(net)
+    if (addr !== "") parts.push(addr)
+    return parts.join(" · ")
 }
 
 // mfaVerifyReason builds the verify-dialog context from the blocking fetch

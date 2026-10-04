@@ -228,6 +228,47 @@ func TestReleaseAfterMarkSignedPromotesToSpent(t *testing.T) {
 	}
 }
 
+// TestReleaseAfterMarkSignedMovesDomainTotal (51.2): promoting a signed
+// reservation to Spent must move the domain ledger in the same persist.
+// Today() alone hid a Release that charged the day and skipped the domain.
+func TestReleaseAfterMarkSignedMovesDomainTotal(t *testing.T) {
+	a, _ := newTestAuthority(t)
+	const domain = "example.com"
+	const amount = int64(1_000_000)
+	token, err := a.Authorize(amount, 5_000_000, 0, domain)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if err := a.MarkSigned(token); err != nil {
+		t.Fatalf("MarkSigned: %v", err)
+	}
+	if err := a.Release(token); err != nil {
+		t.Fatalf("Release(signed): %v", err)
+	}
+	today, err := a.Today()
+	if err != nil {
+		t.Fatalf("Today: %v", err)
+	}
+	dom, err := a.DomainTotal(domain)
+	if err != nil {
+		t.Fatalf("DomainTotal: %v", err)
+	}
+	if today != amount || dom != amount {
+		t.Fatalf("after signed Release: Today=%d DomainTotal=%d, want both %d", today, dom, amount)
+	}
+	if err := a.Release(token); err != nil {
+		t.Fatalf("Release again: %v", err)
+	}
+	today2, _ := a.Today()
+	dom2, err := a.DomainTotal(domain)
+	if err != nil {
+		t.Fatalf("DomainTotal again: %v", err)
+	}
+	if today2 != amount || dom2 != amount {
+		t.Fatalf("second Release doubled: Today=%d DomainTotal=%d, want both %d", today2, dom2, amount)
+	}
+}
+
 // TestReleaseUnsignedStillFrees — pre-sig path must keep dropping the hold.
 func TestReleaseUnsignedStillFrees(t *testing.T) {
 	a, _ := newTestAuthority(t)

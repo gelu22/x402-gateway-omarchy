@@ -66,6 +66,7 @@ function loadModelJS() {
       budgetFraction: (typeof budgetFraction !== "undefined") ? budgetFraction : undefined,
       budgetRemaining: (typeof budgetRemaining !== "undefined") ? budgetRemaining : undefined,
       buildInfoLabel: (typeof buildInfoLabel !== "undefined") ? buildInfoLabel : undefined,
+      pluginVersionLabel: (typeof pluginVersionLabel !== "undefined") ? pluginVersionLabel : undefined,
       panelDebugEnabled: (typeof panelDebugEnabled !== "undefined") ? panelDebugEnabled : undefined,
       clipboardCommand: (typeof clipboardCommand !== "undefined") ? clipboardCommand : undefined,
       clipboardStdin: (typeof clipboardStdin !== "undefined") ? clipboardStdin : undefined,
@@ -78,6 +79,7 @@ function loadModelJS() {
       ICON_WALLET: (typeof ICON_WALLET !== "undefined") ? ICON_WALLET : undefined,
       mfaBadge: (typeof mfaBadge !== "undefined") ? mfaBadge : undefined,
       mfaLabel: (typeof mfaLabel !== "undefined") ? mfaLabel : undefined,
+      accountNetworkLine: (typeof accountNetworkLine !== "undefined") ? accountNetworkLine : undefined,
       mfaVerifyReason: (typeof mfaVerifyReason !== "undefined") ? mfaVerifyReason : undefined,
       usdToMicro: (typeof usdToMicro !== "undefined") ? usdToMicro : undefined,
       microToUsd: (typeof microToUsd !== "undefined") ? microToUsd : undefined,
@@ -984,6 +986,19 @@ describe("Model.js", () => {
       assert.strictEqual(Model.mfaLabel(false, "totp"), "MFA: off — recommended");
     });
 
+    it("accountNetworkLine joins network · short (no MFA)", () => {
+      assert.strictEqual(
+        Model.accountNetworkLine("eip155:84532", "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"),
+        "Base Sepolia · 0x3caa…630F"
+      );
+      assert.strictEqual(Model.accountNetworkLine("", ""), "");
+      assert.strictEqual(Model.accountNetworkLine("eip155:84532", ""), "Base Sepolia");
+      assert.strictEqual(
+        Model.accountNetworkLine("", "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"),
+        "0x3caa…630F"
+      );
+    });
+
     it("mfaBadge maps on/off to ok/offline", () => {
       assert.strictEqual(Model.mfaBadge(true), Model.Palette.ok);
       assert.strictEqual(Model.mfaBadge(false), Model.Palette.offline);
@@ -1397,6 +1412,21 @@ describe("buildInfoLabel (41.3: release stamp in the panel footer)", () => {
   it("returns empty for malformed JSON or a missing version (fail-safe, no crash)", () => {
     for (const bad of ["not json", "{", "[]", "null", "{}", '{"git_sha":"abc"}'])
       assert.strictEqual(Model.buildInfoLabel(bad), "", bad);
+  });
+});
+
+describe("pluginVersionLabel (52.16: short SETUP stamp without sha)", () => {
+  it("formats version without sha even when git_sha is present", () => {
+    assert.strictEqual(
+      Model.pluginVersionLabel('{"version":"0.1.20","git_sha":"abcdef1234567890"}'),
+      "plugin v0.1.20");
+  });
+  it("formats version alone", () => {
+    assert.strictEqual(Model.pluginVersionLabel('{"version":"0.1.20"}'), "plugin v0.1.20");
+  });
+  it("returns empty for missing/blank/malformed input", () => {
+    for (const bad of [undefined, null, "", "   ", "not json", "{}", '{"git_sha":"abc"}'])
+      assert.strictEqual(Model.pluginVersionLabel(bad), "", String(bad));
   });
 });
 

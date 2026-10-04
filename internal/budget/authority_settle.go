@@ -79,6 +79,9 @@ func (a *Authority) Release(token string) error {
 	delete(st.Reserved, token)
 	if r.Signed {
 		st.Spent = satAddSpent(st.Spent, r.AmountMicro)
+		// Same transaction as Commit and the TTL promote: a signed Release
+		// must not leave the domain cap blind (51.2).
+		st.SpentByDomain[r.Domain] = satAddSpent(st.SpentByDomain[r.Domain], r.AmountMicro)
 	}
 	return a.persist(st)
 }

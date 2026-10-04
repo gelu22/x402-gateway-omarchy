@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.21] — 2026-10-04
+
+### Changed
+
+- **Catalog description** (email → CDP wallet → daily limit on Base; fresh installs start on the free test network). Same paragraph is the public GitHub About.
+- **AI agents:** the panel lists Omarchy launchers that are really installed (`mise where` / non-stub bin), not cold mise stubs; Integrate only for five known MCP shapes; compact Integrate/Remove actions.
+- **SETUP / budget UX:** inline CAP edit, USDC labeling, Account under SETUP, remembered overrides open the config; SETUP footer shows `plugin vX.Y.Z` for comparing with Releases.
+
 ## [0.1.20] — 2026-10-03
 
 ### Security

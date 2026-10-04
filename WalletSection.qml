@@ -1,11 +1,12 @@
-// WalletSection.qml — Account: collapsed summary + Open config / MFA / Logout
-// (43.3). Pure composition; socket calls stay in Panel via signals.
+// WalletSection.qml — ACCOUNT block inside SETUP (52.13): flat CAPS header,
+// muted status lines, one action row, Logout separate. No CollapsibleSection
+// (SETUP already discloses). Pure composition; socket calls stay in Panel.
 import QtQuick
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-CollapsibleSection {
+Column {
     id: root
 
     property string walletAddress: ""
@@ -14,83 +15,89 @@ CollapsibleSection {
     property string mfaMethod: ""
     property bool busy: false
     property bool mfaBusy: false
-    property string configPath: ""
-    // Copy feedback (39.1): the copy control flashes ok-green while set.
+    // Copy feedback (39.1): button text flashes while set.
     property bool addressCopied: false
     property int copyFeedbackMs: 2000
 
     signal copyAddress()
-    signal openConfig()
     signal startMfaEnroll()
     signal openMfaReset()
     signal requestLogout()
 
-    iconText: Model.ICON_WALLET
-    title: Model.networkLabel(root.paymentNetwork) + " · " + Model.shortAddress(root.walletAddress)
-    trailingText: Model.mfaLabel(root.mfaEnrolled, root.mfaMethod)
-    trailingColor: Model.mfaBadge(root.mfaEnrolled)
+    readonly property color formMuted: Qt.darker(Color.foreground, 1.45)
 
-    // ---- Body (visible when expanded) ----
+    width: parent ? parent.width : 0
+    spacing: Style.space(8)
+
+    // ---- Header: icon + CAPS (BudgetsSection language) ----
     Row {
+        spacing: Style.space(6)
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: Model.ICON_WALLET
+            color: root.formMuted
+            font.family: Style.font.family
+            font.pixelSize: Style.font.icon
+        }
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: "ACCOUNT"
+            color: root.formMuted
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.letterSpacing: 1
+            font.bold: true
+        }
+    }
+
+    // ---- Facts (not actions) ----
+    Text {
+        width: parent.width
+        text: Model.accountNetworkLine(root.paymentNetwork, root.walletAddress)
+        color: root.formMuted
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+        visible: text !== ""
+    }
+
+    Text {
+        width: parent.width
+        text: Model.mfaLabel(root.mfaEnrolled, root.mfaMethod)
+        color: Model.mfaBadge(root.mfaEnrolled)
+        font.pixelSize: Style.font.caption
+        wrapMode: Text.WordWrap
+    }
+
+    // ---- Actions: one row (no Button.color fill — 52.12 lesson) ----
+    Flow {
         width: parent.width
         spacing: Style.space(8)
 
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: Model.shortAddress(root.walletAddress)
-            color: Color.foreground
-            font.pixelSize: Style.font.caption
-        }
-
         Button {
-            anchors.verticalCenter: parent.verticalCenter
-            iconText: ""
-            color: root.addressCopied ? Model.Palette.ok : Color.foreground
+            text: root.addressCopied ? Model.copyDoneLabel() : "Copy address"
             tooltipText: root.addressCopied ? Model.copyDoneLabel() : "Copy full address"
             onClicked: { root.copyAddress(); root.addressCopied = true }
         }
 
-        Timer {
-            interval: root.copyFeedbackMs
-            running: root.addressCopied
-            onTriggered: root.addressCopied = false
-        }
-    }
-
-    Button {
-        text: "Open config"
-        enabled: root.configPath !== ""
-        tooltipText: root.configPath !== "" ? root.configPath : "Config path unavailable"
-        onClicked: root.openConfig()
-    }
-
-    // MFA: explicit text + Enable/Reset (enroll/reset semantics unchanged).
-    Row {
-        width: parent.width
-        spacing: Style.space(8)
-
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: Model.mfaLabel(root.mfaEnrolled, root.mfaMethod)
-            color: Model.mfaBadge(root.mfaEnrolled)
-            font.pixelSize: Style.font.caption
-        }
-
         Button {
             visible: !root.mfaEnrolled
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Enable"
+            text: "Enable MFA"
             enabled: !root.mfaBusy
             onClicked: root.startMfaEnroll()
         }
 
         Button {
             visible: root.mfaEnrolled
-            anchors.verticalCenter: parent.verticalCenter
-            text: "Reset"
+            text: "Reset MFA"
             enabled: !root.mfaBusy
             onClicked: root.openMfaReset()
         }
+    }
+
+    Timer {
+        interval: root.copyFeedbackMs
+        running: root.addressCopied
+        onTriggered: root.addressCopied = false
     }
 
     PanelSeparator {}
