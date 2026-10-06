@@ -23,7 +23,7 @@ The gateway is a bar widget plus a local daemon. Download the installer from a
 script straight into a shell:
 
 ```bash
-VERSION=v0.1.22   # any released tag (see the Releases page)
+VERSION=v0.1.23   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -39,7 +39,7 @@ copy: it is not attestation-checked, and a moved tag would silently run a
 different installer.
 
 ```bash
-git clone --branch v0.1.22 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
+git clone --branch v0.1.23 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
 less x402-gateway-omarchy/scripts/install.sh
 ```
 
@@ -67,7 +67,7 @@ There is no auto-update: the installer **copies** the binary and the plugin
 once. To update, run the same pinned, verified download for the new tag:
 
 ```bash
-VERSION=v0.1.22
+VERSION=v0.1.23
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -84,7 +84,7 @@ Check what changed in [CHANGELOG.md](CHANGELOG.md).
 Interactive deinstaller — one self-contained chain (download → verify → run):
 
 ```bash
-VERSION=v0.1.22
+VERSION=v0.1.23
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
@@ -99,7 +99,7 @@ plugin, the helper, the agent MCP entries, your state **including the audit
 log**, and the plugin config) — the same self-contained chain, with `--yes`:
 
 ```bash
-VERSION=v0.1.22
+VERSION=v0.1.23
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/uninstall.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \

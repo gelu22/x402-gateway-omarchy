@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.23] — 2026-10-06
+
+### Security
+
+- **Payment-approval and other untrusted UI text render as PlainText.** `Text` showing a seller URL (and host/reason, MFA context, wallet line, agent name) no longer uses the default `Text.AutoText`, so HTML in a public URL fragment cannot make Qt fetch loopback/private addresses before the daemon SSRF guard runs. Marketplace finding: omacom/omarchy-plugin-marketplace#10216. Ratchet: qml-structure class E.
+
+### Fixed
+
+- **QML structure classes and qmllint gate (53.1–53.6).** Parameterized signal handlers declare formal params; Keys/Accessible stay off non-Item roots; QtObject roots have no bare object children; Item built-ins are not shadowed; `check-qml.sh` in preflight; Esc closes MFA via FocusScope; journal filter classes for known Quickshell noise.
+
 ## [0.1.22] — 2026-10-06
 
 ### Security

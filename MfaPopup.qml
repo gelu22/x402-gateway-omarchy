@@ -46,18 +46,15 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-    // Fresh dialog each open; autofocus the code field (reset has none).
+    // Fresh dialog each open; autofocus the code field (reset → keyScope).
     onOpenChanged: if (open) {
         codeField.text = ""
         root.errorText = ""
         root.keyCopied = false
         root.linkCopied = false
         if (root.mode !== "reset") codeField.forceActiveFocus()
+        else keyScope.forceActiveFocus()
     }
-
-    // Esc bubbles from the focused item to the window root; blocked while busy
-    // (an in-flight verify finishes on the daemon, 30.2b).
-    Keys.onEscapePressed: if (!root.busy) root.dismissed()
 
     // Local validation: a malformed code never reaches the socket.
     // Busy re-check: enabled-bindings already freeze the buttons, but a
@@ -71,6 +68,14 @@ PanelWindow {
         root.errorText = ""
         root.submitCode(codeField.text)
     }
+
+    // Esc walks from the focused control up to keyScope. PanelWindow is not an
+    // Item — Keys on the window root never attached (journal: Could not attach Keys).
+    FocusScope {
+        id: keyScope
+        anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: if (!root.busy) root.dismissed()
 
     // Scrim: click outside the card dismisses (blocked while busy).
     Rectangle {
@@ -135,6 +140,7 @@ PanelWindow {
                         required property var modelData // string from reasonLines
                         width: parent.width
                         text: modelData
+                        textFormat: Text.PlainText
                         color: Color.foreground
                         opacity: 0.8
                         font.pixelSize: Style.font.caption
@@ -170,6 +176,7 @@ PanelWindow {
                 width: parent.width
                 visible: root.mode === "enroll" && root.secret !== ""
                 text: "Manual key (copy as backup):\n" + root.secret
+                textFormat: Text.PlainText
                 color: Color.foreground
                 opacity: 0.8
                 font.pixelSize: Style.font.caption
@@ -211,7 +218,7 @@ PanelWindow {
                 maximumLength: 6
                 validator: RegularExpressionValidator { regularExpression: /[0-9]{0,6}/ }
                 enabled: !root.busy
-                onAccepted: root.submit()
+                onAccepted: function() { root.submit() }
             }
 
             Text {
@@ -229,6 +236,7 @@ PanelWindow {
                 width: parent.width
                 visible: root.mode === "reset"
                 text: Model.MFA_RESET_URL
+                textFormat: Text.PlainText
                 color: Color.foreground
                 opacity: 0.7
                 font.pixelSize: Style.font.caption
@@ -295,5 +303,6 @@ PanelWindow {
                 }
             }
         }
+    }
     }
 }

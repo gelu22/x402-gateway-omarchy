@@ -104,14 +104,14 @@ QtObject {
         id: copyProcess
         stdinEnabled: false
         onStarted: {
-            if (secret !== "") {
-                write(secret)
-                stdinEnabled = false
+            if (root.secret !== "") {
+                copyProcess.write(root.secret)
+                copyProcess.stdinEnabled = false
             }
         }
         onExited: (code) => {
             if (code !== 0)
-                errorTextRequested("Could not copy the authenticator secret")
+                root.errorTextRequested("Could not copy the authenticator secret")
         }
     }
 

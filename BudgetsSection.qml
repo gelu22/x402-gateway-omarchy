@@ -113,7 +113,7 @@ Column {
                         if (visible)
                             forceActiveFocus()
                     }
-                    onAccepted: root.commitEdit()
+                    onAccepted: function() { root.commitEdit() }
                     onEditingFinished: {
                         // Escape sets editingCap false first; skip commit then.
                         if (root.editingCap)

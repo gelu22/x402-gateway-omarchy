@@ -35,7 +35,7 @@ Column {
             id: emailInput
             width: parent.width
             placeholderText: "you@example.com"
-            onAccepted: root.submitEmail(emailInput.text)
+            onAccepted: function() { root.submitEmail(emailInput.text) }
         }
         Button { text: "Send code"; onClicked: root.submitEmail(emailInput.text) }
     }
@@ -50,7 +50,7 @@ Column {
             id: otpInput
             width: parent.width
             placeholderText: "123456"
-            onAccepted: root.submitOtp(otpInput.text)
+            onAccepted: function() { root.submitOtp(otpInput.text) }
         }
         Button { text: "Confirm"; onClicked: root.submitOtp(otpInput.text) }
     }

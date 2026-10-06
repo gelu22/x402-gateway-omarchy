@@ -711,9 +711,9 @@ Panel {
                 step: root.step
                 busy: root.busy
                 budgetPrefill: Model.formatUsdExact(root.capDaily)
-                onSubmitEmail: root.submitEmail(email)
-                onSubmitOtp: root.submitOtp(otp)
-                onSaveBudget: root.saveBudgetValue(usd)
+                onSubmitEmail: function(email) { root.submitEmail(email) }
+                onSubmitOtp: function(otp) { root.submitOtp(otp) }
+                onSaveBudget: function(usd) { root.saveBudgetValue(usd) }
                 onValidationFailed: function(msg) { root.errorMessage = msg }
             }
 

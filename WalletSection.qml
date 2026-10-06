@@ -54,6 +54,7 @@ Column {
     Text {
         width: parent.width
         text: Model.accountNetworkLine(root.paymentNetwork, root.walletAddress)
+        textFormat: Text.PlainText
         color: root.formMuted
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap

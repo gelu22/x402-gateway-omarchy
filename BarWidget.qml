@@ -14,7 +14,7 @@ BarWidget {
     property string socketPath: ""
 
     // Live state (updated by statusProc polling).
-    property string state: Model.State.OFFLINE   // offline|active|paused|exhausted|error|logged_out
+    property string gatewayState: Model.State.OFFLINE   // offline|active|paused|exhausted|error|logged_out
     property string blockText: ""
     property string balanceText: Model.formatUsdExact(0)
     property string iconGlyph: Model.ICON_WALLET // nf-fa-credit_card — payment identity of the widget
@@ -70,7 +70,7 @@ BarWidget {
     // instead of a stale balance or a premature "Offline".
     property bool firstPollDone: false
 
-    readonly property color stateColor: Model.statusColor(root.state)
+    readonly property color stateColor: Model.statusColor(root.gatewayState)
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
@@ -85,7 +85,7 @@ BarWidget {
             onStreamFinished: {
                 root.firstPollDone = true
                 var st = Model.parseStatus(this.text)
-                root.state = st.state
+                root.gatewayState = st.state
                 root.tooltipLine1 = st.block_text !== "" ? st.block_text
                                                          : ("Status: " + Model.stateLabel(st.state))
                 // logged_out: clear stale balance/spend from previous session
@@ -115,7 +115,7 @@ BarWidget {
             }
         }
         stderr: StdioCollector { }
-        onExited: (code, _) => { root.firstPollDone = true; if (code !== 0) root.state = Model.State.OFFLINE }
+        onExited: (code, _) => { root.firstPollDone = true; if (code !== 0) root.gatewayState = Model.State.OFFLINE }
     }
 
     // Reinjection when the shell injects bar/settings AFTER creation —
@@ -151,9 +151,9 @@ BarWidget {
         // state label otherwise — color alone is invisible to color-blind
         // users. Labels come from Model.stateLabel (no new strings in QML).
         // balanceText is already formatUsdExact from parseStatus — never re-round (NEW-P2-1).
-        text: root.iconGlyph + "  " + (root.state === Model.State.ACTIVE ? root.balanceText + Model.USD_SYMBOL
+        text: root.iconGlyph + "  " + (root.gatewayState === Model.State.ACTIVE ? root.balanceText + Model.USD_SYMBOL
               : !root.firstPollDone ? "…"
-              : Model.stateLabel(root.state))
+              : Model.stateLabel(root.gatewayState))
         fontSize: Style.font.caption
         foreground: root.stateColor
         tooltipText: root.tooltipLine1 + (root.tooltipLine2 !== "" ? ("\n" + root.tooltipLine2) : "")

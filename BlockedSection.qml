@@ -2,6 +2,7 @@
 // Rows come from Model.parseBlocked(/status.blocked): summary only, never the
 // request body/headers. Actions are daemon calls over the socket; this file has
 // no business logic and no secrets (rule 6) — decisions live in Model.js.
+pragma ComponentBehavior: Bound
 import Quickshell.Io
 import QtQuick
 import qs.Commons
@@ -107,19 +108,22 @@ Column {
     Repeater {
         model: root.rows
         delegate: Column {
+            id: blockedRow
             required property var modelData
             width: root.width
             spacing: Style.space(2)
             Text {
                 width: parent.width
-                text: modelData.host + " — " + Model.blockedAmountText(modelData.amountMicro) + " USDC"
+                text: blockedRow.modelData.host + " — " + Model.blockedAmountText(blockedRow.modelData.amountMicro) + " USDC"
+                textFormat: Text.PlainText
                 color: Color.foreground
                 font.pixelSize: Style.font.body
                 elide: Text.ElideRight
             }
             Text {
                 width: parent.width
-                text: modelData.reason
+                text: blockedRow.modelData.reason
+                textFormat: Text.PlainText
                 color: Qt.darker(Color.foreground, 1.4)
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideRight
@@ -129,17 +133,17 @@ Column {
                 Button {
                     text: "Pay now"
                     focusable: true
-                    onClicked: root.payNow(modelData)
+                    onClicked: root.payNow(blockedRow.modelData)
                 }
                 Button {
                     text: "Allow"
                     focusable: true
-                    onClicked: root.allow(modelData)
+                    onClicked: root.allow(blockedRow.modelData)
                 }
                 Button {
                     text: "Dismiss"
                     focusable: true
-                    onClicked: root.dismiss(modelData)
+                    onClicked: root.dismiss(blockedRow.modelData)
                 }
             }
         }

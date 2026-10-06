@@ -3,6 +3,7 @@
 // agent gets "Integrate", each integrated one gets "Remove". All file mutations
 // go through scripts/setup-agents.sh --apply/--remove <name>: backups,
 // validation and rollback remain in the script (SSOT safety).
+pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Io
 import QtQuick
@@ -150,21 +151,23 @@ Item {
             model: root.agents
 
             delegate: RowLayout {
+                id: agentRow
                 required property var modelData
-                readonly property bool integrated: modelData.integrated === true
+                readonly property bool integrated: agentRow.modelData.integrated === true
 
                 width: parent.width
                 spacing: Style.space(8)
 
                 Text {
-                    text: modelData.integrated ? "✓" : "·"
-                    color: modelData.integrated ? Model.Palette.ok : Color.foreground
+                    text: agentRow.modelData.integrated ? "✓" : "·"
+                    color: agentRow.modelData.integrated ? Model.Palette.ok : Color.foreground
                     font.pixelSize: Style.font.bodySmall
                     Layout.preferredWidth: 14
                 }
 
                 Text {
-                    text: modelData.name
+                    text: agentRow.modelData.name
+                    textFormat: Text.PlainText
                     color: Color.foreground
                     font.pixelSize: Style.font.bodySmall
                     Layout.fillWidth: true
@@ -172,17 +175,17 @@ Item {
                 }
 
                 Button {
-                    visible: modelData.connectable !== false && !modelData.integrated
+                    visible: agentRow.modelData.connectable !== false && !agentRow.modelData.integrated
                     enabled: !root.busy
                     text: root.busy ? root.busyLabel : "Integrate"
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(4)
                     verticalPadding: Style.space(2)
-                    onClicked: root.integrate(modelData.name)
+                    onClicked: root.integrate(agentRow.modelData.name)
                 }
 
                 Text {
-                    visible: modelData.connectable === false && !modelData.integrated
+                    visible: agentRow.modelData.connectable === false && !agentRow.modelData.integrated
                     text: "Installed — no auto-connect"
                     color: Color.foreground
                     font.pixelSize: Style.font.caption
@@ -190,13 +193,13 @@ Item {
                 }
 
                 Button {
-                    visible: modelData.integrated === true
+                    visible: agentRow.modelData.integrated === true
                     enabled: !root.busy
                     text: root.busy ? root.busyLabel : "Remove"
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(4)
                     verticalPadding: Style.space(2)
-                    onClicked: root.remove(modelData.name)
+                    onClicked: root.remove(agentRow.modelData.name)
                 }
             }
         }

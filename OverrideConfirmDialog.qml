@@ -147,6 +147,7 @@ Item {
                 wrapMode: Text.WordWrap
                 visible: Model.overrideReasonText(root.code, root.targetUrl) !== ""
                 text: Model.overrideReasonText(root.code, root.targetUrl)
+                textFormat: Text.PlainText
                 color: Model.Palette.warn
                 font.pixelSize: Style.font.caption
             }
@@ -163,9 +164,12 @@ Item {
             }
 
             // URL (click copies the full URL; flashes ok-green as feedback).
+            // PlainText: AutoText would parse HTML in a public URL fragment and
+            // can make Qt fetch loopback/private before daemon SSRF (#10216).
             Text {
                 width: parent.width
                 text: root.targetUrl
+                textFormat: Text.PlainText
                 color: root.urlCopied ? Model.Palette.ok : Color.foreground
                 opacity: 0.7
                 font.pixelSize: Style.font.caption
