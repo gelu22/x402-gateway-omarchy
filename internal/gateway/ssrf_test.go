@@ -235,6 +235,50 @@ func TestDialPin_LiteralPrivate(t *testing.T) {
 	}
 }
 
+// TestCheckIP_MappedCGNAT: LookupIPAddr returns 16-byte IPv4-mapped for A
+// records. MustParseAddr("100.64.0.1") is Is4=true and was always blocked;
+// AddrFromSlice(ParseIP(...)) is Is4In6 and used to skip the CGNAT gate (#10084).
+func TestCheckIP_MappedCGNAT(t *testing.T) {
+	raw := net.ParseIP("100.64.0.1")
+	if raw == nil || len(raw) != 16 {
+		t.Fatalf("ParseIP shape: want 16-byte mapped, got %v len=%d", raw, len(raw))
+	}
+	ip, ok := netip.AddrFromSlice(raw)
+	if !ok {
+		t.Fatal("AddrFromSlice failed")
+	}
+	if ip.Is4() || !ip.Is4In6() {
+		t.Fatalf("precondition: want Is4In6 mapped, got Is4=%v Is4In6=%v", ip.Is4(), ip.Is4In6())
+	}
+	err := checkIP(ip)
+	if err == nil || !strings.Contains(err.Error(), "CGNAT") {
+		t.Fatalf("want CGNAT error for mapped 100.64.0.1, got %v", err)
+	}
+	mapped, err2 := netip.ParseAddr("::ffff:100.64.0.1")
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if err := checkIP(mapped); err == nil || !strings.Contains(err.Error(), "CGNAT") {
+		t.Fatalf("want CGNAT for ::ffff:100.64.0.1, got %v", err)
+	}
+}
+
+// TestDialPin_MappedCGNATLookup: fake resolver returns the same 16-byte shape
+// LookupIPAddr yields — dial must not proceed.
+func TestDialPin_MappedCGNATLookup(t *testing.T) {
+	mapped := net.ParseIP("100.64.0.1")
+	lookup := &fakeLookup{ips: [][]net.IPAddr{{{IP: mapped}}}}
+	rd := &recordDialer{}
+	g := &SsrfGuard{lookupIPAddr: lookup.lookup}
+	_, err := dialWithCheck(context.Background(), rd.dial, "tcp", "tailscale-peer.example:80", g)
+	if err == nil || !strings.Contains(err.Error(), "CGNAT") {
+		t.Fatalf("want CGNAT block, got %v", err)
+	}
+	if len(rd.addrs) != 0 {
+		t.Fatalf("dialer called %v, want no dial", rd.addrs)
+	}
+}
+
 func TestDialPin_IPv6Brackets(t *testing.T) {
 	g, _ := pinGuard("2606:4700:4700::1111")
 	rd := &recordDialer{}

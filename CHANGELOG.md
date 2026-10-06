@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.22] — 2026-10-06
+
+### Security
+
+- **SSRF dial guard blocks CGNAT for IPv4-mapped DNS results.** Go's `LookupIPAddr` often returns `100.64.0.0/10` (Tailscale/CGNAT) as a 16-byte IPv4-mapped address (`::ffff:…`), where `Is4()` is false — so the CGNAT check was skipped and an integration-authorized agent could reach those addresses through `/fetch`. The guard now unmaps before all deny checks. Marketplace finding: omacom/omarchy-plugin-marketplace#10084. Ratchets: mapped `100.64.0.1` in `checkIP` and dial-time lookup.
+
 ## [0.1.21] — 2026-10-04
 
 ### Changed

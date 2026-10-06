@@ -25,7 +25,11 @@ type SsrfGuard struct {
 
 // checkIP validates that the given IP is not in a private/reserved range.
 // Returns an error if the IP is blocked by SSRF policy.
+// Unmap first: LookupIPAddr often returns 16-byte IPv4-mapped addresses
+// (::ffff:x.x.x.x). Is4() is false for those, so the CGNAT gate would miss
+// 100.64.0.0/10 without Unmap (marketplace #10084 / T2).
 func checkIP(ip netip.Addr) error {
+	ip = ip.Unmap()
 	if ip.IsLoopback() {
 		return fmt.Errorf("SSRF: loopback address %s", ip)
 	}
