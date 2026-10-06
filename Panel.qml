@@ -71,6 +71,7 @@ Panel {
 
     // SETUP disclosure: session-only (reset on each open/close).
     property bool advancedExpanded: false
+    property bool historyExpanded: false
     // Version stamp is debug-only (43.4); fail-closed without GATEWAY_PANEL_DEBUG=1.
     readonly property bool panelDebug: Model.panelDebugEnabled(Quickshell.env("GATEWAY_PANEL_DEBUG"))
 
@@ -122,11 +123,13 @@ Panel {
 
     function open() {
         root.advancedExpanded = false
+        root.historyExpanded = false
         root.controller.show()
         root.refresh()
     }
     function close() {
         root.advancedExpanded = false
+        root.historyExpanded = false
         root.pendingOverride = null
         root.priceChangeFrom = null
         mfa.closeMfaDialog()
@@ -168,6 +171,8 @@ Panel {
                 root.daemonVersion = o.version || ""
                 // Payments the daemon is holding for the owner (49.2/49.4).
                 root.blockedRows = Model.parseBlocked(o)
+                if (typeof historySection !== "undefined" && historySection)
+                    historySection.refresh()
                 // Single transition point: resolveStep() decides from daemon
                 // truth. User-initiated steps (submitEmail/submitOtp) set their
                 // own; never inline step logic here.
@@ -676,6 +681,18 @@ Panel {
                     socketPath: root.socketPath
                     onRefresh: root.refresh()
                     onFailed: function(msg) { root.fail(msg) }
+                }
+
+                HistorySection {
+                    id: historySection
+                    width: parent.width
+                    socketPath: root.socketPath
+                    expanded: root.historyExpanded
+                    onToggle: {
+                        root.historyExpanded = !root.historyExpanded
+                        if (root.historyExpanded)
+                            historySection.reload()
+                    }
                 }
 
                 OverrideSection {

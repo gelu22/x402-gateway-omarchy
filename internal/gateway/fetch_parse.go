@@ -10,7 +10,7 @@ import (
 	"gateway/internal/x402"
 )
 
-func (g *Gateway) parse402Response(ctx context.Context, method, target string, body []byte, headers map[string]string, key string) (*http.Response, *x402.PaymentRequired, *x402.PaymentRequirements, error) {
+func (g *Gateway) parse402Response(ctx context.Context, method, target string, body []byte, headers map[string]string, key, agent string) (*http.Response, *x402.PaymentRequired, *x402.PaymentRequirements, error) {
 	first, err := g.doRequest(ctx, method, target, body, headers)
 	if err != nil {
 		g.setLastFetchError("upstream_error", 0, false, target, err.Error())
@@ -37,7 +37,10 @@ func (g *Gateway) parse402Response(ctx context.Context, method, target string, b
 	if err != nil {
 		err := &PolicyError{Code: "network_denied"}
 		g.setLastFetchError("network_denied", 0, false, target, err.Error())
-		LogPayment(g.Logger, 0, target, policyOutcome("network_denied"), false)
+		LogPayment(g.Logger, PaymentLine{
+			AmountMicro: 0, Target: target,
+			Outcome: policyOutcome("network_denied"), Agent: agent,
+		})
 		return nil, nil, nil, err
 	}
 	return first, pr, req, nil

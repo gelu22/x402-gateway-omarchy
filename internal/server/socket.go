@@ -84,6 +84,7 @@ type Server struct {
 	Pairing     PairingAPI
 	MFA         MFAAPI
 	Version     string
+	AuditPath   string // path to audit.log for GET /history (may be empty)
 	logger      *slog.Logger
 	AuditLogger *slog.Logger
 
@@ -106,7 +107,7 @@ type PairingAPI interface {
 	Logout() error
 }
 
-func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, mfa MFAAPI, logger, auditLogger *slog.Logger) error {
+func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, mfa MFAAPI, logger, auditLogger *slog.Logger, auditPath string) error {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		return fmt.Errorf("server: state dir: %w", err)
 	}
@@ -116,9 +117,10 @@ func Serve(socketPath, version string, gw *gateway.Gateway, pairing PairingAPI, 
 		return fmt.Errorf("server: listen: %w", err)
 	}
 	_ = os.Chmod(socketPath, 0o600)
-	srv := &Server{Gateway: gw, Pairing: pairing, MFA: mfa, Version: version, logger: logger, AuditLogger: auditLogger, blocked: newBlockedStore(nil)}
+	srv := &Server{Gateway: gw, Pairing: pairing, MFA: mfa, Version: version, AuditPath: auditPath, logger: logger, AuditLogger: auditLogger, blocked: newBlockedStore(nil)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", srv.handleStatus)
+	mux.HandleFunc("GET /history", srv.handleHistory)
 	mux.HandleFunc("GET /pause", srv.handlePause)
 	mux.HandleFunc("POST /pause", srv.handlePause)
 	mux.HandleFunc("GET /pair/status", srv.handlePairStatus)

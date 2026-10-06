@@ -33,7 +33,7 @@ func installFileAtomically(src, destDir, destName string, mode uint32) error {
 	if err := refuseSymlink(destDir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return err
 	}
 	if err := refuseSymlink(destDir); err != nil { // re-check after mkdir
@@ -52,20 +52,34 @@ func installFileAtomically(src, destDir, destName string, mode uint32) error {
 		return fmt.Errorf("install: openat %s: %w", tmpName, err)
 	}
 	tmpf := os.NewFile(uintptr(fd), filepath.Join(destDir, tmpName))
-	in, err := os.Open(src)
+	srcRoot, err := openRoot(filepath.Dir(src))
 	if err != nil {
-		tmpf.Close()
+		_ = tmpf.Close()
+		_ = unix.Unlinkat(dirfd, tmpName, 0)
+		return err
+	}
+	in, err := srcRoot.Open(filepath.Base(src))
+	if err != nil {
+		_ = srcRoot.Close()
+		_ = tmpf.Close()
 		_ = unix.Unlinkat(dirfd, tmpName, 0)
 		return err
 	}
 	_, copyErr := io.Copy(tmpf, in)
-	in.Close()
+	closeInErr := in.Close()
+	closeSrcErr := srcRoot.Close()
 	syncErr := tmpf.Sync()
 	closeErr := tmpf.Close()
-	if copyErr != nil || syncErr != nil || closeErr != nil {
+	if copyErr != nil || closeInErr != nil || closeSrcErr != nil || syncErr != nil || closeErr != nil {
 		_ = unix.Unlinkat(dirfd, tmpName, 0)
 		if copyErr != nil {
 			return copyErr
+		}
+		if closeInErr != nil {
+			return closeInErr
+		}
+		if closeSrcErr != nil {
+			return closeSrcErr
 		}
 		if syncErr != nil {
 			return syncErr
@@ -110,7 +124,9 @@ func removeOurs(stateDir, path string, force bool) error {
 	if err != nil {
 		return err
 	}
-	unix.Close(fd)
+	if err := unix.Close(fd); err != nil {
+		return err
+	}
 	if err := unix.Unlinkat(dirfd, base, 0); err != nil {
 		return err
 	}

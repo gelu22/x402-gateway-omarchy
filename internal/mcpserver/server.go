@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 
+	"gateway/internal/agentlabel"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,6 +22,7 @@ import (
 type Options struct {
 	SocketPath string
 	Version    string
+	Agent      string // optional; when set, sent as X-Gateway-Agent on every call
 }
 
 type fetchInput struct {
@@ -57,7 +60,7 @@ func New(ctx context.Context, opts Options) (*mcp.Server, error) {
 		if in.Body != "" {
 			body["body"] = []byte(in.Body)
 		}
-		raw, err := callSocket(ctx, client, "/fetch", body)
+		raw, err := callSocket(ctx, client, opts.Agent, "/fetch", body)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -68,7 +71,7 @@ func New(ctx context.Context, opts Options) (*mcp.Server, error) {
 		Name:        "gateway_status",
 		Description: "Gateway state: wallet address, spend today vs budget, per-request cap, paused flag.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
-		raw, err := callSocket(ctx, client, "/status", nil)
+		raw, err := callSocket(ctx, client, opts.Agent, "/status", nil)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -79,7 +82,7 @@ func New(ctx context.Context, opts Options) (*mcp.Server, error) {
 		Name:        "gateway_pause",
 		Description: "Pause or resume all automatic spending. While paused every paid fetch fails fast.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in pauseInput) (*mcp.CallToolResult, any, error) {
-		raw, err := callSocket(ctx, client, "/pause", map[string]any{"paused": in.Paused})
+		raw, err := callSocket(ctx, client, opts.Agent, "/pause", map[string]any{"paused": in.Paused})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -99,7 +102,8 @@ func RunStdio(ctx context.Context, opts Options) error {
 }
 
 // callSocket POSTs a JSON body to a daemon endpoint over the unix socket.
-func callSocket(ctx context.Context, client *http.Client, path string, body any) ([]byte, error) {
+// When agent is non-empty, sets X-Gateway-Agent (no header when empty).
+func callSocket(ctx context.Context, client *http.Client, agent, path string, body any) ([]byte, error) {
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -113,6 +117,9 @@ func callSocket(ctx context.Context, client *http.Client, path string, body any)
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if agent != "" {
+		req.Header.Set(agentlabel.Header, agent)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("gateway unreachable (is the daemon running?): %w", err)

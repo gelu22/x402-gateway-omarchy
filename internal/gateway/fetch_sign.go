@@ -21,7 +21,7 @@ import (
 // Domain spend is no longer written here: the Commit moves the per-domain total
 // inside the budget authority, which is the only place the per-domain cap is
 // read from (47.1). OnPayment stays 2xx-only (telemetry / balance invalidate).
-func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body []byte, headers map[string]string, pr *x402.PaymentRequired, req *x402.PaymentRequirements, overrideAmountMicro int64, key string, amountMicro int64, amountErr error, budgetToken string) (*FetchResult, error) {
+func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body []byte, headers map[string]string, pr *x402.PaymentRequired, req *x402.PaymentRequirements, overrideAmountMicro int64, key string, amountMicro int64, amountErr error, budgetToken, agent string) (*FetchResult, error) {
 	release := func() {
 		if budgetToken == "" || g.Budget == nil {
 			return
@@ -148,7 +148,11 @@ func (g *Gateway) signAndRetry(ctx context.Context, method, target string, body 
 			g.setLastFetchError("content_too_large", amountMicro, false, target, rerr.Error())
 			return nil, fmt.Errorf("%w: %v", ErrContentTooLarge, rerr)
 		}
-		LogPayment(g.Logger, amountMicro, target, "paid", overrideAmountMicro > 0)
+		LogPayment(g.Logger, PaymentLine{
+			AmountMicro: amountMicro, Target: target,
+			Outcome: "paid", Agent: agent,
+			Override: overrideAmountMicro > 0,
+		})
 		return res, nil
 	}
 	commitPostSig() // header sent — never Release on non-2xx

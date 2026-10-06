@@ -44,7 +44,7 @@ func TestCallSocketFetchRoute(t *testing.T) {
 	client := makeRedirectClient(srv.URL)
 
 	// Test /fetch
-	raw, err := callSocket(context.Background(), client, "/fetch", map[string]any{
+	raw, err := callSocket(context.Background(), client, "", "/fetch", map[string]any{
 		"url":    "https://example.com",
 		"method": "GET",
 	})
@@ -60,7 +60,7 @@ func TestCallSocketFetchRoute(t *testing.T) {
 	}
 
 	// Test /status (nil body → GET-style)
-	raw, err = callSocket(context.Background(), client, "/status", nil)
+	raw, err = callSocket(context.Background(), client, "", "/status", nil)
 	if err != nil {
 		t.Fatalf("callSocket /status: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestCallSocketFetchRoute(t *testing.T) {
 	}
 
 	// Test /pause
-	raw, err = callSocket(context.Background(), client, "/pause", map[string]bool{"paused": true})
+	raw, err = callSocket(context.Background(), client, "", "/pause", map[string]bool{"paused": true})
 	if err != nil {
 		t.Fatalf("callSocket /pause: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestCallSocketMalformedResponse(t *testing.T) {
 	client := makeRedirectClient(srv.URL)
 
 	// callSocket doesn't parse JSON — it returns raw bytes
-	raw, err := callSocket(context.Background(), client, "/test", nil)
+	raw, err := callSocket(context.Background(), client, "", "/test", nil)
 	if err != nil {
 		t.Fatalf("callSocket malformed: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestCallSocketEmptyResponse(t *testing.T) {
 
 	client := makeRedirectClient(srv.URL)
 
-	raw, err := callSocket(context.Background(), client, "/empty", nil)
+	raw, err := callSocket(context.Background(), client, "", "/empty", nil)
 	if err != nil {
 		t.Fatalf("callSocket empty: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestCallSocketUTF8Body(t *testing.T) {
 
 	client := makeRedirectClient(srv.URL)
 
-	raw, err := callSocket(context.Background(), client, "/utf8", map[string]string{"key": "value"})
+	raw, err := callSocket(context.Background(), client, "", "/utf8", map[string]string{"key": "value"})
 	if err != nil {
 		t.Fatalf("callSocket UTF-8: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestCallSocketSlowTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := callSocket(ctx, client, "/timeout-test", nil)
+	_, err := callSocket(ctx, client, "", "/timeout-test", nil)
 	if err == nil {
 		t.Fatal("callSocket timeout: want error, got nil")
 	}
@@ -173,7 +173,7 @@ func TestCallSocket402PaymentRequired(t *testing.T) {
 
 	client := makeRedirectClient(srv.URL)
 
-	_, err := callSocket(context.Background(), client, "/402", nil)
+	_, err := callSocket(context.Background(), client, "", "/402", nil)
 	if err == nil {
 		t.Fatal("callSocket 402: want error, got nil")
 	}

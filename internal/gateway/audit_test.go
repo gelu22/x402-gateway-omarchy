@@ -48,7 +48,7 @@ func assertAuditKeys(t *testing.T, m map[string]any) {
 	allow := map[string]bool{
 		"time": true, "level": true, "msg": true,
 		"amount_micro": true, "domain": true,
-		"outcome": true, "override": true,
+		"outcome": true, "override": true, "agent": true,
 	}
 	for k := range m {
 		if !allow[k] {
@@ -65,7 +65,7 @@ func assertAuditKeys(t *testing.T, m map[string]any) {
 
 func TestLogPaymentPaid(t *testing.T) {
 	lines, raw := collectAudit(t, func(l *slog.Logger) {
-		LogPayment(l, 100000, "https://seller.example/paid-article?x=1", "paid", false)
+		LogPayment(l, PaymentLine{AmountMicro: 100000, Target: "https://seller.example/paid-article?x=1", Outcome: "paid"})
 	})
 	if len(lines) != 1 {
 		t.Fatalf("want 1 line, got %d", len(lines))
@@ -83,7 +83,7 @@ func TestLogPaymentPaid(t *testing.T) {
 
 func TestLogPaymentFailedOverride(t *testing.T) {
 	lines, raw := collectAudit(t, func(l *slog.Logger) {
-		LogPayment(l, 250000, "https://api.example/crawl?q=2", "failed:budget_exceeded", true)
+		LogPayment(l, PaymentLine{AmountMicro: 250000, Target: "https://api.example/crawl?q=2", Outcome: "failed:budget_exceeded", Override: true})
 	})
 	if len(lines) != 1 {
 		t.Fatalf("want 1 line, got %d", len(lines))
@@ -101,7 +101,7 @@ func TestLogPaymentFailedOverride(t *testing.T) {
 
 func TestLogPaymentUnparsableTarget(t *testing.T) {
 	lines, _ := collectAudit(t, func(l *slog.Logger) {
-		LogPayment(l, 0, "", "failed:bad_request", false)
+		LogPayment(l, PaymentLine{Outcome: "failed:bad_request"})
 	})
 	if len(lines) != 1 {
 		t.Fatalf("want 1 line (never silent), got %d", len(lines))
@@ -113,7 +113,7 @@ func TestLogPaymentUnparsableTarget(t *testing.T) {
 
 func TestLogPaymentNeverLeaksSecrets(t *testing.T) {
 	_, raw := collectAudit(t, func(l *slog.Logger) {
-		LogPayment(l, 5000, "https://pay.example/item?token=S3CR3T&key=abc#frag", "paid", false)
+		LogPayment(l, PaymentLine{AmountMicro: 5000, Target: "https://pay.example/item?token=S3CR3T&key=abc#frag", Outcome: "paid"})
 	})
 	for _, secret := range []string{"S3CR3T", "abc", "token=", "key=", "#frag", "/item"} {
 		if strings.Contains(raw, secret) {
@@ -124,7 +124,7 @@ func TestLogPaymentNeverLeaksSecrets(t *testing.T) {
 
 func TestLogPaymentNilLoggerSilent(t *testing.T) {
 	// Must neither panic nor emit: minimal Gateways without a logger stay quiet.
-	LogPayment(nil, 1, "https://x.example/", "paid", false)
+	LogPayment(nil, PaymentLine{AmountMicro: 1, Target: "https://x.example/", Outcome: "paid"})
 }
 
 func TestPolicyOutcomeAllowlist(t *testing.T) {

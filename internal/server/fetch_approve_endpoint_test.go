@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -151,5 +152,91 @@ func TestFetchApprovePaysTheNamedIDNotTheNewerRefusal(t *testing.T) {
 				t.Fatalf("newer id signed older=%d newer=%d, want 0 and 1", olderSigned.Load(), newerSigned.Load())
 			}
 		})
+	}
+}
+
+// 54.5: approve replays under the agent label that caused the block.
+func TestApproveReplaysUnderOriginalAgent(t *testing.T) {
+	t.Setenv("GATEWAY_NOTIFY", "0")
+	gw, sock := permsServer(t, true)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw.Signer = &approveSigner{ws: cdp.NewWalletSecret("test-secret", time.Time{}, nil, key)}
+	gw.Sellers = gateway.NewSellerRegistry(t.TempDir())
+	gw.Client = cdp.NewClient("test-project")
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"signature":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+	}))
+	t.Cleanup(fake.Close)
+	gw.Client.BaseURL = fake.URL
+
+	var buf bytes.Buffer
+	gw.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+
+	var signed atomic.Int32
+	seller := countingSeller(t, &signed)
+	client := testClient(sock)
+	req, err := http.NewRequest(http.MethodPost, "http://localhost/fetch",
+		bytes.NewReader([]byte(`{"method":"GET","url":"`+seller.URL+`/x"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gateway-Agent", "codex")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	st, err := client.Get("http://localhost/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(st.Body)
+	st.Body.Close()
+	var body struct {
+		Blocked []struct {
+			ID    string `json:"id"`
+			Agent string `json:"agent"`
+		} `json:"blocked"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Blocked) != 1 || body.Blocked[0].Agent != "codex" {
+		t.Fatalf("blocked = %+v, want agent=codex", body.Blocked)
+	}
+	buf.Reset()
+	aresp, err := client.Post("http://localhost/fetch-approve", "application/json",
+		bytes.NewReader([]byte(`{"id":"`+body.Blocked[0].ID+`"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aresp.Body.Close()
+	if signed.Load() != 1 {
+		t.Fatalf("signed = %d, want 1", signed.Load())
+	}
+	found := false
+	for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(line, &m); err != nil {
+			continue
+		}
+		if m["msg"] == "payment audit" && m["outcome"] == "paid" {
+			if m["agent"] != "codex" {
+				t.Fatalf("paid agent = %v, want codex", m["agent"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no paid audit line; log=%s", buf.String())
 	}
 }

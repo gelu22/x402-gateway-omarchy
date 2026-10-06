@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ func fixedClock(t time.Time) func() time.Time { return func() time.Time { return
 func TestBlockedStoreRingEvictsOldest(t *testing.T) {
 	b := newBlockedStore(fixedClock(time.Unix(1000, 0)))
 	for i := 0; i < blockedMax+5; i++ {
-		b.Record("GET", fmt.Sprintf("https://s%d.example/x", i), nil, nil, 1_000, "mfa_required")
+		b.Record("GET", fmt.Sprintf("https://s%d.example/x", i), nil, nil, 1_000, "mfa_required", "")
 	}
 	got := b.List()
 	if len(got) != blockedMax {
@@ -32,7 +33,7 @@ func TestBlockedStoreRingEvictsOldest(t *testing.T) {
 func TestBlockedStoreTTLDropsStale(t *testing.T) {
 	now := time.Unix(1000, 0)
 	b := newBlockedStore(func() time.Time { return now })
-	b.Record("GET", "https://a.example/x", nil, nil, 1_000, "mfa_required")
+	b.Record("GET", "https://a.example/x", nil, nil, 1_000, "mfa_required", "")
 	now = now.Add(blockedTTL + time.Second)
 	if got := b.List(); len(got) != 0 {
 		t.Fatalf("stale entry survived: %+v", got)
@@ -44,11 +45,11 @@ func TestBlockedStoreTTLDropsStale(t *testing.T) {
 func TestBlockedStoreHeadersOnlyForBodyMethods(t *testing.T) {
 	b := newBlockedStore(fixedClock(time.Unix(1000, 0)))
 	h := map[string]string{"Authorization": "secret"}
-	get, _ := b.Record("GET", "https://a.example/x", nil, h, 1_000, "mfa_required")
+	get, _ := b.Record("GET", "https://a.example/x", nil, h, 1_000, "mfa_required", "")
 	if get.Headers != nil {
 		t.Fatalf("GET must not remember headers, got %v", get.Headers)
 	}
-	post, _ := b.Record("POST", "https://a.example/x", []byte("{}"), h, 1_000, "unknown_seller")
+	post, _ := b.Record("POST", "https://a.example/x", []byte("{}"), h, 1_000, "unknown_seller", "")
 	if post.Headers["Authorization"] != "secret" {
 		t.Fatalf("POST headers must be remembered for replay, got %v", post.Headers)
 	}
@@ -64,14 +65,14 @@ func TestBlockedStoreHeadersOnlyForBodyMethods(t *testing.T) {
 func TestBlockedStoreNotifyCoalesced(t *testing.T) {
 	now := time.Unix(1000, 0)
 	b := newBlockedStore(func() time.Time { return now })
-	if _, notify := b.Record("GET", "https://a/x", nil, nil, 1, "mfa_required"); !notify {
+	if _, notify := b.Record("GET", "https://a/x", nil, nil, 1, "mfa_required", ""); !notify {
 		t.Fatal("first refusal must notify")
 	}
-	if _, notify := b.Record("GET", "https://b/x", nil, nil, 1, "mfa_required"); notify {
+	if _, notify := b.Record("GET", "https://b/x", nil, nil, 1, "mfa_required", ""); notify {
 		t.Fatal("second refusal inside the window must not notify")
 	}
 	now = now.Add(blockedNotifyWindow + time.Second)
-	if _, notify := b.Record("GET", "https://c/x", nil, nil, 1, "mfa_required"); !notify {
+	if _, notify := b.Record("GET", "https://c/x", nil, nil, 1, "mfa_required", ""); !notify {
 		t.Fatal("after the window a refusal must notify again")
 	}
 }
@@ -80,7 +81,7 @@ func TestBlockedStoreNotifyCoalesced(t *testing.T) {
 // is gone.
 func TestBlockedStoreGetRemove(t *testing.T) {
 	b := newBlockedStore(fixedClock(time.Unix(1000, 0)))
-	br, _ := b.Record("GET", "https://a/x", nil, nil, 5_000, "mfa_required")
+	br, _ := b.Record("GET", "https://a/x", nil, nil, 5_000, "mfa_required", "")
 	if _, ok := b.Get(br.ID); !ok {
 		t.Fatal("Get must find the recorded entry")
 	}
@@ -102,10 +103,10 @@ func TestRecordIfBlockedClassifies(t *testing.T) {
 	t.Setenv("GATEWAY_NOTIFY", "0")
 	srv := &Server{blocked: newBlockedStore(fixedClock(time.Unix(1000, 0)))}
 
-	srv.recordIfBlocked("GET", "https://mfa/x", nil, nil, &gateway.PolicyError{Code: "mfa_required", AmountMicro: 10})
-	srv.recordIfBlocked("GET", "https://cap/x", nil, nil, &gateway.PolicyError{Code: "domain_cap_exceeded", AmountMicro: 20, CanOverride: true})
-	srv.recordIfBlocked("GET", "https://hard/x", nil, nil, &gateway.PolicyError{Code: "policy_violation", AmountMicro: 30, CanOverride: false})
-	srv.recordIfBlocked("GET", "https://plain/x", nil, nil, fmt.Errorf("some other error"))
+	srv.recordIfBlocked(context.Background(), "GET", "https://mfa/x", nil, nil, &gateway.PolicyError{Code: "mfa_required", AmountMicro: 10})
+	srv.recordIfBlocked(context.Background(), "GET", "https://cap/x", nil, nil, &gateway.PolicyError{Code: "domain_cap_exceeded", AmountMicro: 20, CanOverride: true})
+	srv.recordIfBlocked(context.Background(), "GET", "https://hard/x", nil, nil, &gateway.PolicyError{Code: "policy_violation", AmountMicro: 30, CanOverride: false})
+	srv.recordIfBlocked(context.Background(), "GET", "https://plain/x", nil, nil, fmt.Errorf("some other error"))
 
 	got := srv.blocked.List()
 	if len(got) != 2 {
@@ -120,14 +121,14 @@ func TestRecordIfBlockedClassifies(t *testing.T) {
 // panic when a payment is refused.
 func TestRecordBlockedNilStoreSafe(t *testing.T) {
 	srv := &Server{}
-	srv.recordIfBlocked("GET", "https://x/y", nil, nil, &gateway.PolicyError{Code: "mfa_required"})
+	srv.recordIfBlocked(context.Background(), "GET", "https://x/y", nil, nil, &gateway.PolicyError{Code: "mfa_required"})
 }
 
 // TestBlockedSummariesOmitBodyAndHeaders (49.2): /status shows what waits, but
 // never the blocked request's body or the agent's headers.
 func TestBlockedSummariesOmitBodyAndHeaders(t *testing.T) {
 	b := newBlockedStore(fixedClock(time.Unix(1000, 0)))
-	b.Record("POST", "https://a.example/x", []byte("secret-body"), map[string]string{"Authorization": "secret"}, 4_200, "unknown_seller")
+	b.Record("POST", "https://a.example/x", []byte("secret-body"), map[string]string{"Authorization": "secret"}, 4_200, "unknown_seller", "")
 	got := b.Summaries()
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))

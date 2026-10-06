@@ -12,11 +12,8 @@
 package server
 
 import (
-	"errors"
 	"sync"
 	"time"
-
-	"gateway/internal/gateway"
 )
 
 // blockedMax bounds the list (oldest-first eviction).
@@ -39,6 +36,7 @@ type BlockedRequest struct {
 	Headers     map[string]string // only for non-GET; GET needs no request state
 	AmountMicro int64
 	Reason      string
+	Agent       string // client label from the refusing request (may be empty)
 	At          time.Time
 }
 
@@ -62,7 +60,7 @@ func newBlockedStore(now func() time.Time) *blockedStore {
 // Record stores a refused request and reports whether a notification is due
 // (first refusal inside the coalescing window). Method+URL+Body are always
 // kept; headers only for methods that can carry a request body.
-func (b *blockedStore) Record(method, rawURL string, body []byte, headers map[string]string, amountMicro int64, reason string) (BlockedRequest, bool) {
+func (b *blockedStore) Record(method, rawURL string, body []byte, headers map[string]string, amountMicro int64, reason, agent string) (BlockedRequest, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.sweepLocked()
@@ -74,6 +72,7 @@ func (b *blockedStore) Record(method, rawURL string, body []byte, headers map[st
 		Body:        append([]byte(nil), body...),
 		AmountMicro: amountMicro,
 		Reason:      reason,
+		Agent:       agent,
 		At:          b.now(),
 	}
 	if method != "GET" && method != "HEAD" {
@@ -100,6 +99,7 @@ type BlockedSummary struct {
 	URL         string `json:"url"`
 	AmountMicro int64  `json:"amount_micro"`
 	Reason      string `json:"reason"`
+	Agent       string `json:"agent"`
 	At          string `json:"at"`
 }
 
@@ -116,6 +116,7 @@ func (b *blockedStore) Summaries() []BlockedSummary {
 			URL:         it.URL,
 			AmountMicro: it.AmountMicro,
 			Reason:      it.Reason,
+			Agent:       it.Agent,
 			At:          it.At.UTC().Format(time.RFC3339),
 		})
 	}
@@ -167,32 +168,6 @@ func (b *blockedStore) sweepLocked() {
 		}
 	}
 	b.items = kept
-}
-
-// recordIfBlocked stores a refused payment the owner can act on: a CDP MFA
-// request, or an overridable policy denial (budget, per-seller, unknown seller,
-// price change). Other errors are not "needs the owner" and are not listed.
-func (s *Server) recordIfBlocked(method, rawURL string, body []byte, headers map[string]string, err error) {
-	var perr *gateway.PolicyError
-	if !errors.As(err, &perr) {
-		return
-	}
-	if perr.Code != "mfa_required" && !perr.CanOverride {
-		return
-	}
-	s.recordBlocked(method, rawURL, body, headers, perr.AmountMicro, perr.Code)
-}
-
-// recordBlocked is the handler-side entry point: store the refused request and
-// notify the owner when the coalescing window allows it.
-func (s *Server) recordBlocked(method, rawURL string, body []byte, headers map[string]string, amountMicro int64, reason string) {
-	if s.blocked == nil {
-		return
-	}
-	_, notify := s.blocked.Record(method, rawURL, body, headers, amountMicro, reason)
-	if notify {
-		gateway.Notify("x402 Gateway — payment needs you", "An agent payment was held: "+reason+". Open the panel to review.")
-	}
 }
 
 func cloneHeaders(in map[string]string) map[string]string {

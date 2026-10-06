@@ -7,11 +7,33 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"gateway/internal/agentlabel"
 )
+
+// agentFromRequest reads X-Gateway-Agent. Empty header → ""; invalid → error.
+func agentFromRequest(r *http.Request) (string, error) {
+	label := strings.TrimSpace(r.Header.Get(agentlabel.Header))
+	if label == "" {
+		return "", nil
+	}
+	if !agentlabel.Valid(label) {
+		return "", fmt.Errorf("invalid agent label")
+	}
+	return label, nil
+}
 
 func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 	// r.Context(): a client that walks away frees the handler (and its MFA wait).
 	ctx := r.Context()
+	label, aerr := agentFromRequest(r)
+	if aerr != nil {
+		writeErr(w, http.StatusBadRequest, "bad_agent_label", aerr)
+		return
+	}
+	if label != "" {
+		ctx = agentlabel.With(ctx, label)
+	}
 	var body struct {
 		Method  string            `json:"method"`
 		URL     string            `json:"url"`
@@ -29,7 +51,7 @@ func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.Gateway.Fetch(ctx, method, body.URL, body.Body, body.Headers)
 	if err != nil {
-		s.recordIfBlocked(method, body.URL, body.Body, body.Headers, err)
+		s.recordIfBlocked(ctx, method, body.URL, body.Body, body.Headers, err)
 		s.mapAndReply(w, err)
 		return
 	}
@@ -38,6 +60,14 @@ func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFetchOverride(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	label, aerr := agentFromRequest(r)
+	if aerr != nil {
+		writeErr(w, http.StatusBadRequest, "bad_agent_label", aerr)
+		return
+	}
+	if label != "" {
+		ctx = agentlabel.With(ctx, label)
+	}
 	var body struct {
 		Method              string            `json:"method"`
 		URL                 string            `json:"url"`
@@ -77,7 +107,7 @@ func (s *Server) handleFetchOverride(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.Gateway.FetchWithOverride(ctx, method, body.URL, body.Body, body.Headers, body.OverrideAmountMicro, body.ApproveSeller)
 	if err != nil {
-		s.recordIfBlocked(method, body.URL, body.Body, body.Headers, err)
+		s.recordIfBlocked(ctx, method, body.URL, body.Body, body.Headers, err)
 		s.mapAndReply(w, err)
 		return
 	}

@@ -44,6 +44,10 @@ function loadModelJS() {
       rememberedLimitMicro: (typeof rememberedLimitMicro !== "undefined") ? rememberedLimitMicro : undefined,
       needsApproval: (typeof needsApproval !== "undefined") ? needsApproval : undefined,
       parseBlocked: (typeof parseBlocked !== "undefined") ? parseBlocked : undefined,
+      parseHistory: (typeof parseHistory !== "undefined") ? parseHistory : undefined,
+      historyRows: (typeof historyRows !== "undefined") ? historyRows : undefined,
+      outcomeLabel: (typeof outcomeLabel !== "undefined") ? outcomeLabel : undefined,
+      relativeWhen: (typeof relativeWhen !== "undefined") ? relativeWhen : undefined,
       blockedAmountText: (typeof blockedAmountText !== "undefined") ? blockedAmountText : undefined,
       approveBody: (typeof approveBody !== "undefined") ? approveBody : undefined,
       permissionBody: (typeof permissionBody !== "undefined") ? permissionBody : undefined,
@@ -804,7 +808,8 @@ describe("Model.js", () => {
         PAIR_INIT: "/pair/init", PAIR_VERIFY: "/pair/verify", PAIR_LOGOUT: "/pair/logout", FETCH_OVERRIDE: "/fetch-override",
         FETCH_APPROVE: "/fetch-approve", PERMISSIONS: "/permissions",
         MFA_ENROLL_INIT: "/mfa/enroll/init", MFA_ENROLL_SUBMIT: "/mfa/enroll/submit",
-        MFA_VERIFY_INIT: "/mfa/verify/init", MFA_VERIFY_SUBMIT: "/mfa/verify/submit"
+        MFA_VERIFY_INIT: "/mfa/verify/init", MFA_VERIFY_SUBMIT: "/mfa/verify/submit",
+        HISTORY: "/history"
       });
     });
 
@@ -1483,5 +1488,40 @@ describe("permission payload (49.4)", () => {
   });
   it("approveBody carries the id", () => {
     assert.deepStrictEqual(JSON.parse(M.approveBody("b7")), { id: "b7" });
+  });
+});
+
+describe("parseHistory / historyRows (54.8)", () => {
+  const M = loadModelJS();
+  it("parseHistory rejects bad JSON", () => {
+    assert.strictEqual(M.parseHistory("{").ok, false);
+    assert.strictEqual(M.parseHistory("").ok, false);
+  });
+  it("parseHistory accepts entries + truncated", () => {
+    const p = M.parseHistory(JSON.stringify({
+      entries: [{ time: "2026-01-01T00:00:00Z", amount_micro: 1500, domain: "a.example", outcome: "paid", override: false, agent: "" }],
+      truncated: true
+    }));
+    assert.strictEqual(p.ok, true);
+    assert.strictEqual(p.truncated, true);
+    assert.strictEqual(p.entries.length, 1);
+  });
+  it("historyRows maps empty agent and failed outcome", () => {
+    const now = Date.parse("2026-01-01T00:10:00Z");
+    const rows = M.historyRows([{
+      time: "2026-01-01T00:05:00Z", amount_micro: 1000, domain: "a.example",
+      outcome: "failed:budget_exceeded", override: true, agent: ""
+    }], now);
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].agent, "—");
+    assert.strictEqual(rows[0].outcome, "Budget exceeded");
+    assert.strictEqual(rows[0].when, "5 min ago");
+    assert.strictEqual(rows[0].override, true);
+    assert.strictEqual(rows[0].amount, "0.001");
+  });
+  it("buildCommand HISTORY is GET without body", () => {
+    const cmd = M.buildCommand("gw.sock", M.Endpoint.HISTORY + "?limit=20", "GET", "");
+    assert.ok(cmd.includes("http://localhost/history?limit=20"));
+    assert.ok(!cmd.includes("--data-binary"));
   });
 });

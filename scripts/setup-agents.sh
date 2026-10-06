@@ -129,34 +129,66 @@ restore() {
 validate_json() { python3 -m json.tool "$1" >/dev/null 2>&1; }
 validate_toml() { python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$1" 2>/dev/null; }
 
+# Writer exit codes shared by inject_json/inject_toml: nothing to write, the
+# file is left untouched. Mapped to "SKIP name reason" by integrate_one.
+RC_LABELED=3 # our entry, already carries GATEWAY_AGENT
+RC_FOREIGN=4 # the key exists but the entry is not ours
+
+# GATEWAY_AGENT value for the entry: the writer name, pinned to the agentlabel
+# regex (internal/agentlabel). All five writer names match by construction;
+# anything else is a bug here, not user input, so refuse to write it.
+agent_label() {
+  local name="$1"
+  [[ "$name" =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]] \
+    || { echo "ERROR: invalid agent label: $name" >&2; return 1; }
+  printf '%s' "$name"
+}
+
 inject_json() {
   # opencode uses the native "mcp" container with its own entry shape; all other
   # JSON agents use "mcpServers" with the Claude-style shape.
-  local file="$1" name="$2"
+  local file="$1" name="$2" label
+  label="$(agent_label "$name")"
   [ -f "$file" ] || { mkdir -p "$(dirname "$file")"; echo '{}' > "$file"; }
-  python3 - "$file" "$GATEWAY_BIN" "$SOCKET_PATH" "$SERVER_KEY" "$name" <<'PY'
+  python3 - "$file" "$GATEWAY_BIN" "$SOCKET_PATH" "$SERVER_KEY" "$name" "$label" \
+    "$RC_LABELED" "$RC_FOREIGN" <<'PY'
 import json, os, sys, tempfile
-path, binpath, sock, key, name = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+path, binpath, sock, key, name, label = sys.argv[1:7]
+rc_labeled, rc_foreign = int(sys.argv[7]), int(sys.argv[8])
 container = "mcp" if name == "opencode" else "mcpServers"
+env_key = "environment" if name == "opencode" else "env"
+# A config file may be a symlink into a dotfiles repo: os.replace on the link
+# path would swap the link for a plain file. Write the target instead.
+path = os.path.realpath(path)
 with open(path) as fh:
     data = json.load(fh)
 servers = data.setdefault(container, {})
-if key in servers:
-    print(f"SKIP {key} already integrated")
-    sys.exit(0)
-if name == "opencode":
-    servers[key] = {
-        "type": "local",
-        "command": [binpath, "-mcp"],
-        "environment": {"GATEWAY_SOCKET_PATH": sock},
-        "enabled": True,
-    }
+entry = servers.get(key)
+if entry is None:
+    if name == "opencode":
+        servers[key] = {
+            "type": "local",
+            "command": [binpath, "-mcp"],
+            "environment": {"GATEWAY_SOCKET_PATH": sock, "GATEWAY_AGENT": label},
+            "enabled": True,
+        }
+    else:
+        servers[key] = {
+            "command": binpath,
+            "args": ["-mcp"],
+            "env": {"GATEWAY_SOCKET_PATH": sock, "GATEWAY_AGENT": label},
+        }
 else:
-    servers[key] = {
-        "command": binpath,
-        "args": ["-mcp"],
-        "env": {"GATEWAY_SOCKET_PATH": sock},
-    }
+    # Upgrade only an entry we recognise as ours, byte-for-byte on command/args.
+    # Anything else under this key is the user's own decision.
+    ours = (entry.get("command") == [binpath, "-mcp"] if name == "opencode"
+            else entry.get("command") == binpath and entry.get("args") == ["-mcp"])
+    env = entry.get(env_key)
+    if not ours or not isinstance(env, dict):
+        sys.exit(rc_foreign)
+    if env.get("GATEWAY_AGENT"):
+        sys.exit(rc_labeled)
+    env["GATEWAY_AGENT"] = label
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
 with os.fdopen(fd, "w") as fh:
     json.dump(data, fh, indent=2)
@@ -165,18 +197,58 @@ PY
 }
 
 inject_toml() {
-  local file="$1"
-  if grep -q "\[mcp_servers.$SERVER_KEY\]" "$file" 2>/dev/null; then
-    echo "SKIP $SERVER_KEY already integrated"
-    return 0
-  fi
-  cat >> "$file" <<EOF
+  # Decision via tomllib (shape), write via line edit (keeps comments and the
+  # rest of the user's file byte-for-byte). Never sed -i on a user file.
+  local file="$1" name="$2" label
+  label="$(agent_label "$name")"
+  python3 - "$file" "$GATEWAY_BIN" "$SOCKET_PATH" "$SERVER_KEY" "$label" \
+    "$RC_LABELED" "$RC_FOREIGN" <<'PY'
+import os, sys, tempfile, tomllib
+path, binpath, sock, key, label = sys.argv[1:6]
+rc_labeled, rc_foreign = int(sys.argv[6]), int(sys.argv[7])
+path = os.path.realpath(path)  # dotfiles symlink: write the target, not the link
+header = "[mcp_servers.%s]" % key
 
-[mcp_servers.$SERVER_KEY]
-command = "$GATEWAY_BIN"
-args = ["-mcp"]
-env = { GATEWAY_SOCKET_PATH = "$SOCKET_PATH" }
-EOF
+
+def q(s):  # TOML basic string
+    return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+env_line = "env = { GATEWAY_SOCKET_PATH = %s, GATEWAY_AGENT = %s }\n" % (q(sock), q(label))
+text = ""
+if os.path.exists(path):
+    with open(path, "rb") as fh:
+        data = tomllib.load(fh)  # corrupt TOML raises: exit != 0, nothing written
+    with open(path) as fh:
+        text = fh.read()
+else:
+    data = {}
+servers = data.get("mcp_servers")
+entry = servers.get(key) if isinstance(servers, dict) else None
+lines = text.splitlines(keepends=True)
+if entry is None:
+    if text and not text.endswith("\n"):
+        lines.append("\n")
+    lines += ["\n", header + "\n", "command = %s\n" % q(binpath), 'args = ["-mcp"]\n', env_line]
+else:
+    if entry.get("command") != binpath or entry.get("args") != ["-mcp"]:
+        sys.exit(rc_foreign)
+    if (entry.get("env") or {}).get("GATEWAY_AGENT"):
+        sys.exit(rc_labeled)
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == header)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
+    at = next((i for i in range(start + 1, end) if lines[i].lstrip().startswith("env")), -1)
+    if at < 0:
+        lines.insert(end, env_line)  # no env line yet: add one inside the section
+    else:
+        lines[at] = env_line
+mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as fh:
+    fh.write("".join(lines))
+os.chmod(tmp, mode)  # keep the user's file mode (cat >> used to)
+os.replace(tmp, path)
+PY
 }
 
 remove_json() {
@@ -238,23 +310,27 @@ PY
 # integrate_one NAME → prints "OK name" / "SKIP name reason" / "FAIL name reason"
 integrate_one() {
   local name="$1"
-  local file fmt bak
+  local file fmt bak rc=0
   file="$(agent_path "$name")"
   [ -n "$file" ] || { echo "FAIL $name unknown-agent"; return 1; }
   fmt="$(agent_format "$name")"
 
-  if is_integrated "$file"; then
-    echo "SKIP $name already-integrated"
-    return 0
-  fi
-
+  # No early "already-integrated" exit: an entry written before 54.6 carries no
+  # GATEWAY_AGENT and has to be upgradable. The writer decides what (if
+  # anything) to change; the backup is dropped again when it changes nothing.
   mkdir -p "$(dirname "$file")"
   bak="$file.bak-$(date +%Y%m%d%H%M%S)"
   [ -f "$file" ] && cp "$file" "$bak" && chmod 600 "$bak" && echo "  backup: $bak"
 
   case "$fmt" in
-    json) inject_json "$file" "$name" ;;
-    toml) inject_toml "$file" ;;
+    json) inject_json "$file" "$name" || rc=$? ;;
+    toml) inject_toml "$file" "$name" || rc=$? ;;
+  esac
+  case "$rc" in
+    0) ;;
+    "$RC_LABELED") rm -f "$bak"; echo "SKIP $name already-integrated"; return 0 ;;
+    "$RC_FOREIGN") rm -f "$bak"; echo "SKIP $name not-ours"; return 0 ;;
+    *) echo "FAIL $name write-failed"; return 1 ;;
   esac
 
   # A write that does not validate is rolled back, never reported OK. (The old

@@ -87,10 +87,11 @@ func startTestServer(t *testing.T, gw *gateway.Gateway, mfa MFAAPI) string {
 	t.Helper()
 	dir := t.TempDir()
 	socketPath := filepath.Join(dir, "test.sock")
+	auditPath := filepath.Join(dir, "audit.log")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	go func() {
-		_ = Serve(socketPath, "test", gw, &mockPairing{}, mfa, logger, logger)
+		_ = Serve(socketPath, "test", gw, &mockPairing{}, mfa, logger, logger, auditPath)
 	}()
 
 	deadline := time.After(3 * time.Second)
@@ -928,4 +929,29 @@ func errorCodeOf(t *testing.T, resp *http.Response) string {
 		t.Fatalf("decode envelope: %v", err)
 	}
 	return env["error"]
+}
+
+// 54.3: bad X-Gateway-Agent → 400 before Gateway.Fetch (paused would not matter).
+func TestBadAgentLabelRejectsBeforeFetch(t *testing.T) {
+	gw := newTestGateway(t)
+	gw.Paused.Store(true) // if Fetch ran, we'd see failed:paused — must not
+	sock := startTestServer(t, gw, nil)
+	req, err := http.NewRequest(http.MethodPost, "http://localhost/fetch",
+		bytes.NewReader([]byte(`{"url":"https://seller.example/x"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Gateway-Agent", "Bad Label")
+	resp, err := testClient(sock).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if code := errorCodeOf(t, resp); code != "bad_agent_label" {
+		t.Fatalf("error = %q, want bad_agent_label", code)
+	}
 }

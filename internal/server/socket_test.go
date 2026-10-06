@@ -200,7 +200,7 @@ func TestPairLogout(t *testing.T) {
 	defer close(stop)
 	go func() {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		_ = Serve(socketPath, "test", gw, pairing, nil, logger, logger)
+		_ = Serve(socketPath, "test", gw, pairing, nil, logger, logger, "")
 	}()
 
 	// Wait for socket to be ready
@@ -264,7 +264,7 @@ func TestPausePostRoutedAndErrorEnvelopeCompatible(t *testing.T) {
 
 	go func() {
 		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		_ = Serve(socketPath, "test", gw, &mockPairing{}, nil, logger, logger)
+		_ = Serve(socketPath, "test", gw, &mockPairing{}, nil, logger, logger, "")
 	}()
 	deadline := time.After(3 * time.Second)
 	for {

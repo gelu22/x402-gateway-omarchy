@@ -10,7 +10,7 @@ import (
 // and override == false (MFA is never overridable).
 func TestMfaRequiredAuditLine(t *testing.T) {
 	lines, raw := collectAudit(t, func(logger *slog.Logger) {
-		LogPayment(logger, 10000, "https://seller.example/content", "failed:mfa_required", false)
+		LogPayment(logger, PaymentLine{AmountMicro: 10000, Target: "https://seller.example/content", Outcome: "failed:mfa_required"})
 	})
 	if len(lines) != 1 {
 		t.Fatalf("want 1 audit line, got %d", len(lines))

@@ -199,3 +199,43 @@ func TestIsOursRegistryMatch(t *testing.T) {
 		t.Fatal("tampered helper must not be ours")
 	}
 }
+
+func TestRegistryTraversalBlocked(t *testing.T) {
+	// Symlink at StateDir itself → openRoot refuses (refuseSymlink).
+	base := t.TempDir()
+	realState := filepath.Join(base, "real-state")
+	if err := os.MkdirAll(realState, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkState := filepath.Join(base, "link-state")
+	if err := os.Symlink(realState, linkState); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(base, "bin.sh")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := registrySet(linkState, helper); err == nil {
+		t.Fatal("registrySet through symlink StateDir must fail")
+	}
+
+	// os.Root rejects relative escape from StateDir.
+	state := filepath.Join(base, "state")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "secret.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := openRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if _, err := root.Open("../secret.txt"); err == nil {
+		t.Fatal("root.Open(../secret.txt) must fail")
+	}
+	if _, err := root.ReadFile("../secret.txt"); err == nil {
+		t.Fatal("root.ReadFile(../secret.txt) must fail")
+	}
+}

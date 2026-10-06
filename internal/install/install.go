@@ -3,7 +3,6 @@
 package install
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -54,7 +53,7 @@ func Install(opts Options) error {
 	if err := os.MkdirAll(opts.StateDir, 0o700); err != nil {
 		return err
 	}
-	_ = os.Chmod(opts.StateDir, 0o700)
+	_ = os.Chmod(opts.StateDir, 0o700) // #nosec G302 -- directory mode (0700); 0600 drops +x and breaks traversal
 	if err := refuseSymlink(opts.StateDir); err != nil {
 		return err
 	}
@@ -132,7 +131,7 @@ func installPlugin(opts Options) error {
 		}
 	}
 	srcDir := filepath.Join(opts.BundleDir, "plugin", "omarchy")
-	if err := os.MkdirAll(opts.PluginDir, 0o755); err != nil {
+	if err := os.MkdirAll(opts.PluginDir, 0o750); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(srcDir)
@@ -181,20 +180,6 @@ func seedConfig(opts Options) error {
 	if err := os.MkdirAll(opts.ConfigDir, 0o700); err != nil {
 		return err
 	}
-	_ = os.Chmod(opts.ConfigDir, 0o700)
+	_ = os.Chmod(opts.ConfigDir, 0o700) // #nosec G302 -- directory mode (0700); 0600 drops +x and breaks traversal
 	return installFileAtomically(src, opts.ConfigDir, "config.json", 0o600)
-}
-
-func pluginIDAt(dir string) string {
-	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
-	if err != nil {
-		return ""
-	}
-	var m struct {
-		ID string `json:"id"`
-	}
-	if json.Unmarshal(raw, &m) != nil {
-		return ""
-	}
-	return m.ID
 }

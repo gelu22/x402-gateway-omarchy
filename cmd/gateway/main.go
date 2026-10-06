@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"gateway/internal/agentlabel"
 	"gateway/internal/config"
 	"gateway/internal/gateway"
 	"gateway/internal/mcpserver"
@@ -52,9 +54,15 @@ func main() {
 			logger.Error("config", "err", err)
 			os.Exit(1)
 		}
+		agent := strings.TrimSpace(os.Getenv(agentlabel.Env))
+		if agent != "" && !agentlabel.Valid(agent) {
+			logger.Error("mcp", "err", "invalid GATEWAY_AGENT")
+			os.Exit(1)
+		}
 		if err := mcpserver.RunStdio(context.Background(), mcpserver.Options{
 			SocketPath: cfg.SocketPath,
 			Version:    cfg.Version,
+			Agent:      agent,
 		}); err != nil {
 			logger.Error("mcp", "err", err)
 			os.Exit(1)
@@ -148,7 +156,7 @@ func main() {
 	auditLogger := slog.New(slog.NewJSONHandler(auditFile, nil))
 	gw.Logger = auditLogger
 
-	if err := server.Serve(cfg.SocketPath, cfg.Version, gw, mgr, mgr, logger, auditLogger); err != nil {
+	if err := server.Serve(cfg.SocketPath, cfg.Version, gw, mgr, mgr, logger, auditLogger, auditPath); err != nil {
 		logger.Error("serve", "err", err)
 		os.Exit(1)
 	}

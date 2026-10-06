@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.25] — 2026-10-06
+
+### Added
+
+- **Payment history in the panel** via `GET /history` (last payment-audit lines: agent label, domain, amount, outcome, time). Collapsible HISTORY section shows up to 20 rows.
+- **Agent label on every payment audit line.** MCP entries get `GATEWAY_AGENT=<name>` from Integrate; the daemon forwards it as `X-Gateway-Agent`. Empty label is legal (legacy entries, panel, curl) and shows as `—`. The label is a declaration written into the MCP config entry, not a proof of identity — any local process can set any label.
+
+### Changed
+
+- **Re-Integrate** existing agent MCP entries to pick up `GATEWAY_AGENT` (idempotent on our entries; foreign entries stay skipped).
+
 ## [0.1.24] — 2026-10-06
 
 ### Security

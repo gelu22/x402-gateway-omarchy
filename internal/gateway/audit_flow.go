@@ -19,18 +19,28 @@ import (
 // Payments are human-scale; 10 MB ≈ 100k lines ≈ years.
 const MaxAuditBytes = 10 << 20
 
+// PaymentLine is one payment-audit row. Agent is a client declaration (may be empty).
+type PaymentLine struct {
+	AmountMicro int64
+	Target      string
+	Outcome     string
+	Agent       string
+	Override    bool
+}
+
 // LogPayment emits one audit line for a payment attempt. Nil-logger safe:
 // Gateways built without a Logger (tests, minimal embeds) stay silent.
-// rawTarget is the full request URL; only its hostname is logged.
-func LogPayment(logger *slog.Logger, amountMicro int64, rawTarget, outcome string, override bool) {
+// Target is the full request URL; only its hostname is logged (T8).
+func LogPayment(logger *slog.Logger, l PaymentLine) {
 	if logger == nil {
 		return
 	}
 	logger.Info("payment audit",
-		"amount_micro", amountMicro,
-		"domain", auditDomain(rawTarget),
-		"outcome", outcome,
-		"override", override,
+		"amount_micro", l.AmountMicro,
+		"domain", auditDomain(l.Target),
+		"outcome", l.Outcome,
+		"override", l.Override,
+		"agent", l.Agent,
 	)
 }
 

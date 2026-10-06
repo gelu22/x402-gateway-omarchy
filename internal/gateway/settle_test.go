@@ -251,7 +251,7 @@ func TestSignRefusesWithoutAccountedAmount(t *testing.T) {
 	gw, payments := newSettleGateway(t)
 	_, err := gw.signAndRetry(context.Background(), http.MethodGet,
 		"https://seller.example/x", nil, nil, nil, nil, 0,
-		"GET https://seller.example/x", 10_000, errors.New("bad amount"), "")
+		"GET https://seller.example/x", 10_000, errors.New("bad amount"), "", "")
 	if !errors.Is(err, ErrSigner) {
 		t.Fatalf("err = %v, want ErrSigner", err)
 	}

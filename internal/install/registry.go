@@ -18,13 +18,21 @@ const registryName = "installed.sha256"
 
 var registryMu sync.Mutex
 
-func registryPath(stateDir string) string {
-	return filepath.Join(stateDir, registryName)
-}
-
 // fileSHA256 returns the hex digest of path, or "" on error.
+// Path may live outside StateDir (e.g. ~/.local/bin/gateway); we root the
+// parent directory and open only filepath.Base (G304 sanitizer + os.Root).
 func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	if base == "." || base == string(filepath.Separator) || strings.Contains(base, "..") {
+		return "", fmt.Errorf("install: refused path %q", path)
+	}
+	root, err := openRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	f, err := root.Open(base)
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +62,12 @@ func IsOurs(stateDir, path string) bool {
 func registryGet(stateDir, path string) (string, error) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	f, err := os.Open(registryPath(stateDir))
+	root, err := openRoot(stateDir)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	f, err := root.Open(registryName)
 	if os.IsNotExist(err) {
 		return "", nil
 	}
@@ -83,12 +96,13 @@ func registrySet(stateDir, path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+	root, err := openRoot(stateDir)
+	if err != nil {
 		return err
 	}
-	reg := registryPath(stateDir)
+	defer root.Close()
 	var kept []string
-	if raw, err := os.ReadFile(reg); err == nil {
+	if raw, err := root.ReadFile(registryName); err == nil {
 		for _, line := range strings.Split(string(raw), "\n") {
 			if line == "" {
 				continue
@@ -100,18 +114,22 @@ func registrySet(stateDir, path string) error {
 		}
 	}
 	kept = append(kept, fmt.Sprintf("%s  %s", sum, path))
-	tmp := reg + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(kept, "\n")+"\n"), 0o600); err != nil {
+	tmp := registryName + ".tmp"
+	if err := root.WriteFile(tmp, []byte(strings.Join(kept, "\n")+"\n"), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, reg)
+	return root.Rename(tmp, registryName)
 }
 
 func registryClear(stateDir, path string) error {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	reg := registryPath(stateDir)
-	raw, err := os.ReadFile(reg)
+	root, err := openRoot(stateDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	raw, err := root.ReadFile(registryName)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -128,13 +146,13 @@ func registryClear(stateDir, path string) error {
 		}
 		kept = append(kept, line)
 	}
-	tmp := reg + ".tmp"
+	tmp := registryName + ".tmp"
 	body := ""
 	if len(kept) > 0 {
 		body = strings.Join(kept, "\n") + "\n"
 	}
-	if err := os.WriteFile(tmp, []byte(body), 0o600); err != nil {
+	if err := root.WriteFile(tmp, []byte(body), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, reg)
+	return root.Rename(tmp, registryName)
 }

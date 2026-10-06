@@ -24,7 +24,7 @@ func TestCallSocketSuccess(t *testing.T) {
 	defer srv.Close()
 
 	client := makeRedirectClient(srv.URL)
-	raw, err := callSocket(context.Background(), client, "/test", map[string]string{"key": "val"})
+	raw, err := callSocket(context.Background(), client, "", "/test", map[string]string{"key": "val"})
 	if err != nil {
 		t.Fatalf("callSocket: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestCallSocketNoBody(t *testing.T) {
 	defer srv.Close()
 
 	client := makeRedirectClient(srv.URL)
-	raw, err := callSocket(context.Background(), client, "/status", nil)
+	raw, err := callSocket(context.Background(), client, "", "/status", nil)
 	if err != nil {
 		t.Fatalf("callSocket: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCallSocketError400(t *testing.T) {
 	defer srv.Close()
 
 	client := makeRedirectClient(srv.URL)
-	_, err := callSocket(context.Background(), client, "/bad", nil)
+	_, err := callSocket(context.Background(), client, "", "/bad", nil)
 	if err == nil {
 		t.Fatal("callSocket 400: want error, got nil")
 	}
@@ -85,7 +85,7 @@ func TestCallSocketError500(t *testing.T) {
 	defer srv.Close()
 
 	client := makeRedirectClient(srv.URL)
-	_, err := callSocket(context.Background(), client, "/error", nil)
+	_, err := callSocket(context.Background(), client, "", "/error", nil)
 	if err == nil {
 		t.Fatal("callSocket 500: want error, got nil")
 	}
@@ -97,7 +97,7 @@ func TestCallSocketError500(t *testing.T) {
 func TestCallSocketUnreachable(t *testing.T) {
 	// Use a port that's unlikely to be listening
 	client := &http.Client{Timeout: 100 * time.Millisecond}
-	_, err := callSocket(context.Background(), client, "/test", nil)
+	_, err := callSocket(context.Background(), client, "", "/test", nil)
 	if err == nil {
 		t.Fatal("callSocket unreachable: want error, got nil")
 	}
@@ -114,7 +114,7 @@ func TestCallSocketTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := callSocket(ctx, client, "/timeout-test", nil)
+	_, err := callSocket(ctx, client, "", "/timeout-test", nil)
 	if err == nil {
 		t.Fatal("callSocket timeout: want error, got nil")
 	}
@@ -132,7 +132,7 @@ func TestCallSocketBodyWithSecrets(t *testing.T) {
 	defer srv.Close()
 
 	client := makeRedirectClient(srv.URL)
-	_, err := callSocket(context.Background(), client, "/secret", map[string]string{"token": "super-secret-123"})
+	_, err := callSocket(context.Background(), client, "", "/secret", map[string]string{"token": "super-secret-123"})
 	if err == nil {
 		t.Fatal("callSocket with body: want error, got nil")
 	}
@@ -151,7 +151,7 @@ func TestCallSocketMalformedJSONBody(t *testing.T) {
 
 	client := makeRedirectClient(srv.URL)
 	// Pass a body that will be JSON marshaled
-	raw, err := callSocket(context.Background(), client, "/test", map[string]any{"key": "value"})
+	raw, err := callSocket(context.Background(), client, "", "/test", map[string]any{"key": "value"})
 	if err != nil {
 		t.Fatalf("callSocket: %v", err)
 	}
@@ -397,5 +397,41 @@ func TestRunStdioHandshakeAndUnreachableDaemon(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunStdio did not stop after cancel")
+	}
+}
+
+// 54.1: Options.Agent is forwarded by tools via callSocket; empty = no header.
+func TestOptionsAgentHeader(t *testing.T) {
+	paths := []string{"/fetch", "/status", "/pause"}
+	for _, agent := range []string{"opencode", ""} {
+		agent := agent
+		t.Run("agent="+agent, func(t *testing.T) {
+			seen := map[string]string{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen[r.URL.Path] = r.Header.Get("X-Gateway-Agent")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer srv.Close()
+			client := makeRedirectClient(srv.URL)
+			opts := Options{Agent: agent}
+			for _, p := range paths {
+				if _, err := callSocket(context.Background(), client, opts.Agent, p, nil); err != nil {
+					t.Fatalf("callSocket %s: %v", p, err)
+				}
+			}
+			for _, p := range paths {
+				got := seen[p]
+				if agent == "" {
+					if got != "" {
+						t.Errorf("%s: header = %q, want absent", p, got)
+					}
+					continue
+				}
+				if got != agent {
+					t.Errorf("%s: header = %q, want %q", p, got, agent)
+				}
+			}
+		})
 	}
 }

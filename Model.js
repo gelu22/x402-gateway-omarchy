@@ -92,7 +92,8 @@ var Endpoint = {
     MFA_ENROLL_INIT: "/mfa/enroll/init",
     MFA_ENROLL_SUBMIT: "/mfa/enroll/submit",
     MFA_VERIFY_INIT: "/mfa/verify/init",
-    MFA_VERIFY_SUBMIT: "/mfa/verify/submit"
+    MFA_VERIFY_SUBMIT: "/mfa/verify/submit",
+    HISTORY: "/history"
 }
 
 // MFA_RESET_URL is the CDP portal page for wallet/MFA settings (documented:
@@ -127,6 +128,7 @@ var ICON_BUDGET = "\uF0D6"   // nf-fa-money — classic FA (F53E coins is tofu o
 var ICON_AGENTS = "\uF0C0"   // nf-fa-users — AI agent integration
 var ICON_URLS = "\uF0C1"     // nf-fa-link — remembered overrides
 var ICON_SETUP = "\uF013"    // nf-fa-cog — SETUP section (classic FA; not agents icon)
+var ICON_HISTORY = "\uF1DA"  // nf-fa-history — payment history
 
 // AGENT_SCRIPT_MISSING is the shared failure text when setup-agents.sh is
 // absent (detect/integrate/remove all surface the same actionable message).
@@ -847,6 +849,73 @@ function parseBlocked(status) {
 // blockedAmountText formats the blocked amount from micro-USDC.
 function blockedAmountText(amountMicro) {
     return formatUsdExact(amountMicro / 1000000)
+}
+
+// parseHistory turns GET /history JSON into {ok, entries, truncated, error}.
+function parseHistory(raw) {
+    if (typeof raw !== "string" || raw === "")
+        return { ok: false, entries: [], truncated: false, error: "empty" }
+    var o
+    try { o = JSON.parse(raw) } catch (e) {
+        return { ok: false, entries: [], truncated: false, error: "bad_json" }
+    }
+    if (!o || typeof o !== "object" || !Array.isArray(o.entries))
+        return { ok: false, entries: [], truncated: false, error: "bad_shape" }
+    return {
+        ok: true,
+        entries: o.entries,
+        truncated: o.truncated === true,
+        error: ""
+    }
+}
+
+// outcomeLabel maps audit outcome codes to short English labels.
+function outcomeLabel(outcome) {
+    var s = String(outcome || "")
+    if (s === "paid") return "Paid"
+    if (s.indexOf("failed:") === 0) {
+        var code = s.slice(7).replace(/_/g, " ")
+        if (code.length === 0) return "Failed"
+        return code.charAt(0).toUpperCase() + code.slice(1)
+    }
+    return s || "—"
+}
+
+// relativeWhen formats an RFC3339 time relative to nowMs (injectable for tests).
+function relativeWhen(iso, nowMs) {
+    var t = Date.parse(String(iso || ""))
+    if (!isFinite(t)) return "—"
+    var now = (typeof nowMs === "number" && isFinite(nowMs)) ? nowMs : Date.now()
+    var sec = Math.floor((now - t) / 1000)
+    if (sec < 60) return "just now"
+    if (sec < 3600) return Math.floor(sec / 60) + " min ago"
+    if (sec < 86400) return Math.floor(sec / 3600) + " h ago"
+    var d = new Date(t)
+    var y = d.getUTCFullYear()
+    var m = String(d.getUTCMonth() + 1).padStart(2, "0")
+    var day = String(d.getUTCDate()).padStart(2, "0")
+    return y + "-" + m + "-" + day
+}
+
+// historyRows maps /history entries to display rows (pure; nowMs injectable).
+function historyRows(entries, nowMs) {
+    if (!Array.isArray(entries)) return []
+    var out = []
+    for (var i = 0; i < entries.length; i++) {
+        var e = entries[i]
+        if (!e || typeof e !== "object") continue
+        var micro = (typeof e.amount_micro === "number" && isFinite(e.amount_micro)) ? e.amount_micro : 0
+        var agent = (typeof e.agent === "string" && e.agent !== "") ? e.agent : "—"
+        out.push({
+            agent: agent,
+            domain: String(e.domain || "—"),
+            amount: formatUsd(micro / MICRO_USDC, Precision.SPEND),
+            outcome: outcomeLabel(e.outcome),
+            when: relativeWhen(e.time, nowMs),
+            override: e.override === true
+        })
+    }
+    return out
 }
 
 // approveBody is the POST /fetch-approve payload (pay now).

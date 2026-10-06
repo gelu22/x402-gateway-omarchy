@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"gateway/internal/agentlabel"
 )
 
 func (s *Server) handleFetchApprove(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +45,10 @@ func (s *Server) handleFetchApprove(w http.ResponseWriter, r *http.Request) {
 	method := br.Method
 	if method == "" {
 		method = http.MethodGet
+	}
+	// Replay under the original agent's label (panel is not an agent).
+	if br.Agent != "" {
+		ctx = agentlabel.With(ctx, br.Agent)
 	}
 	// approveSeller=true lands the seller (TOFU); the recorded amount is the
 	// ceiling, so a raised price surfaces as price_changed instead of overpaying.
