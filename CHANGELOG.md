@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.24] — 2026-10-06
+
+### Security
+
+- **Error and notice banners render as PlainText.** Seller-controlled Payment-Required `errorDetail` (and other daemon notices) flow through `AlertBanner`; without `Text.PlainText`, AutoText could fetch an embedded image URL—including loopback/private—after a payment retry. Marketplace finding: omacom/omarchy-plugin-marketplace#10220. Ratchet: qml-structure class E covers `root.text` / `errorMessage` / `alertText`.
+
 ## [0.1.23] — 2026-10-06
 
 ### Security

@@ -32,9 +32,12 @@ Rectangle {
         anchors.margins: Style.space(6)
         spacing: Style.space(8)
 
+        // PlainText: errorDetail / Payment-Required snippets are untrusted;
+        // AutoText can make Qt fetch loopback/private images (#10220).
         Text {
             Layout.fillWidth: true
             text: root.text
+            textFormat: Text.PlainText
             color: root.tone === "error" ? Model.Palette.error : Model.Palette.warn
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap

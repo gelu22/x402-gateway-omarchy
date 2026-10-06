@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "gelu22.gateway",
   "name": "x402 Gateway",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "author": "gelu22",
   "license": "MIT",
   "description": "A bar widget and a small program that pays for paid web pages for your AI agents. Sign in with email and a wallet is created for you; paywalls are paid in USDC on Base up to your daily limit. Fresh installs start on the free test network — MFA, funding, and agent setup live in the panel after login.",
