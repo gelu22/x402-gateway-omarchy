@@ -12,7 +12,8 @@ import (
 	"gateway/internal/x402"
 )
 
-// authorizePayment: daily/domain caps; override lifts daily, approveSeller lifts sub-cap.
+// authorizePayment: daily/domain/agent caps; override lifts daily+agent,
+// approveSeller lifts sub-cap only (not agent).
 func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target string, pol *policy.Policy, overrideAmountMicro int64, approveSeller bool, agent string) (string, error) {
 	if amountErr != nil || amountMicro <= 0 {
 		return "", nil
@@ -22,8 +23,10 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 		return "", fmt.Errorf("%w: budget authority missing", ErrUpstream)
 	}
 	capMicro := pol.DailyCapMicro
+	agentCap := pol.AgentCapMicro(agent)
 	if overrideAmountMicro > 0 {
 		capMicro = math.MaxInt64
+		agentCap = 0 // owner override lifts the agent limit too
 	}
 	subcap := pol.DomainSubCapMicro()
 	domain := normSellerDomain(target)
@@ -38,7 +41,10 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 	// read from the Sellers registry here was check-then-act — a payment settled
 	// in between was in neither store's view of the domain, so two ordinary
 	// concurrent requests could exceed the cap (47.1).
-	token, err := g.Budget.Authorize(amountMicro, capMicro, subcap, domain)
+	token, err := g.Budget.Authorize(
+		budget.Hold{AmountMicro: amountMicro, Domain: domain, Agent: agent},
+		budget.Caps{DailyMicro: capMicro, DomainMicro: subcap, AgentMicro: agentCap},
+	)
 	if err != nil {
 		if errors.Is(err, budget.ErrSubCap) {
 			g.recordBlock("domain_cap_exceeded", strconv.FormatInt(amountMicro, 10), target)
@@ -59,6 +65,16 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 				Override: overrideAmountMicro > 0,
 			})
 			return "", &PolicyError{Code: "budget_exceeded", AmountMicro: amountMicro, CanOverride: true}
+		}
+		if errors.Is(err, budget.ErrAgentCap) {
+			g.recordBlock("agent_cap_exceeded", strconv.FormatInt(amountMicro, 10), target)
+			g.setLastFetchError("agent_cap_exceeded", amountMicro, true, target, "agent_cap_exceeded")
+			LogPayment(g.Logger, PaymentLine{
+				AmountMicro: amountMicro, Target: target,
+				Outcome: "failed:agent_cap_exceeded", Agent: agent,
+				Override: overrideAmountMicro > 0,
+			})
+			return "", &PolicyError{Code: "agent_cap_exceeded", AmountMicro: amountMicro, CanOverride: true}
 		}
 		g.setLastFetchError("upstream_error", amountMicro, false, target, err.Error())
 		return "", fmt.Errorf("%w: %v", ErrUpstream, err)

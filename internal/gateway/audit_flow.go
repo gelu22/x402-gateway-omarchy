@@ -70,7 +70,7 @@ func RotateAuditLog(path string, maxBytes int64) error {
 // which a future Check edit could lace with seller payload.
 func policyOutcome(code string) string {
 	switch code {
-	case "invalid_amount", "budget_exceeded", "network_denied", "price_changed", "unknown_seller", "domain_cap_exceeded", "mfa_required", "policy_violation", "insufficient_funds":
+	case "invalid_amount", "budget_exceeded", "network_denied", "price_changed", "unknown_seller", "domain_cap_exceeded", "agent_cap_exceeded", "mfa_required", "policy_violation", "insufficient_funds":
 		return "failed:" + code
 	default:
 		return "failed:policy_denied"

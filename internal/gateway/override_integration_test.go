@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"gateway/internal/budget"
 	"gateway/internal/policy"
 )
 
@@ -31,7 +32,7 @@ func sellerAsking(t *testing.T, amount string, retryStatus int) *httptest.Server
 // a fetch denied by the daily budget changes nothing, the user's approval pays.
 func TestOverrideFlowBudgetExceededThenApprovedPays(t *testing.T) {
 	gw, payments := newSettleGateway(t)
-	tok, err := gw.Budget.Authorize(4_995_000, 5_000_000, 0, "seed") // $4.995 of the $5 cap
+	tok, err := gw.Budget.Authorize(budget.Hold{AmountMicro: 4_995_000, Domain: "seed"}, budget.Caps{DailyMicro: 5_000_000, DomainMicro: 0}) // $4.995 of the $5 cap
 	if err != nil {
 		t.Fatal(err)
 	}

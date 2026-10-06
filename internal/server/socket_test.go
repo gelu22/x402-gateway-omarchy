@@ -139,7 +139,7 @@ func TestFetchOverBudgetDenialBeforeSign(t *testing.T) {
 
 func TestFetchBudgetExceeded(t *testing.T) {
 	gw, signer := newGateway(t, 100_000 /* $0.10 daily */, 50_000 /* $0.05 per req */)
-	tok, err := gw.Budget.Authorize(90_000, 100_000, 0, "seed") // already spent $0.09 today
+	tok, err := gw.Budget.Authorize(budget.Hold{AmountMicro: 90_000, Domain: "seed"}, budget.Caps{DailyMicro: 100_000, DomainMicro: 0}) // already spent $0.09 today
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ func newTestAuthority(t *testing.T) (*Authority, string) {
 // TestAuthorizeRejectsOverCap proves a single authorization above the cap fails.
 func TestAuthorizeRejectsOverCap(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	if _, err := a.Authorize(6_000_000, 5_000_000, 0, "example.com"); err != ErrBudget {
+	if _, err := a.Authorize(Hold{AmountMicro: 6_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != ErrBudget {
 		t.Fatalf("want ErrBudget, got %v", err)
 	}
 }
@@ -25,7 +25,7 @@ func TestAuthorizeRejectsOverCap(t *testing.T) {
 // TestAuthorizeAcceptsWithinCap proves a normal authorization succeeds and persists.
 func TestAuthorizeAcceptsWithinCap(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestConcurrentAuthorizeNeverExceedsCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := a.Authorize(amount, capMicro, 0, "example.com")
+			_, err := a.Authorize(Hold{AmountMicro: amount, Domain: "example.com"}, Caps{DailyMicro: capMicro, DomainMicro: 0})
 			if err == nil {
 				mu.Lock()
 				accepted += amount
@@ -87,7 +87,7 @@ func TestConcurrentAuthorizeSubCapNeverExceeds(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := a.Authorize(amount, capMicro, subcap, "same.example.com")
+			_, err := a.Authorize(Hold{AmountMicro: amount, Domain: "same.example.com"}, Caps{DailyMicro: capMicro, DomainMicro: subcap})
 			if err == nil {
 				mu.Lock()
 				accepted += amount
@@ -111,7 +111,7 @@ func TestAuthorizeFailClosedOnWriteError(t *testing.T) {
 	}
 	defer os.Chmod(dir, 0o700) //nolint:errcheck
 	a := NewAuthority(dir, time.Now)
-	_, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	_, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err == nil {
 		t.Fatal("want error on read-only dir, got nil")
 	}
@@ -123,7 +123,7 @@ func TestAuthorizeFailClosedOnWriteError(t *testing.T) {
 // TestCommitMovesReservedToSpent proves Commit charges the amount.
 func TestCommitMovesReservedToSpent(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	token, _ := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, _ := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err := a.Commit(token); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestCommitMovesReservedToSpent(t *testing.T) {
 // TestReleaseFreesBudget proves Release returns the amount to the pool.
 func TestReleaseFreesBudget(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	token, _ := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, _ := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err := a.Release(token); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestTTLUnsignedDrops(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	if _, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com"); err != nil {
+	if _, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
 	total, _ := a.Today()
@@ -182,7 +182,7 @@ func TestDayRolloverResetsBudget(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	token, _ := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, _ := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	_ = a.Commit(token)
 	// Next day: budget resets.
 	a2 := NewAuthority(dir, func() time.Time { return now.Add(24 * time.Hour) })
@@ -208,11 +208,11 @@ func TestCorruptFileFailsClosed(t *testing.T) {
 	}
 	a := NewAuthority(dir, time.Now)
 	// Corrupt file → fresh day → Authorize works within cap.
-	if _, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com"); err != nil {
+	if _, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != nil {
 		t.Fatalf("Authorize after corrupt: %v", err)
 	}
 	// But over cap still fails.
-	if _, err := a.Authorize(5_000_000, 5_000_000, 0, "example.com"); err != ErrBudget {
+	if _, err := a.Authorize(Hold{AmountMicro: 5_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != ErrBudget {
 		t.Fatalf("want ErrBudget after corrupt, got %v", err)
 	}
 }
@@ -221,15 +221,15 @@ func TestCorruptFileFailsClosed(t *testing.T) {
 func TestSubCapDisabledWhenZero(t *testing.T) {
 	a, _ := newTestAuthority(t)
 	// 3 × 2M = 6M > 5M cap, but sub-cap is 0 (disabled) — only the cap matters.
-	_, err := a.Authorize(2_000_000, 5_000_000, 0, "example.com")
+	_, err := a.Authorize(Hold{AmountMicro: 2_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize with subcap=0: %v", err)
 	}
-	_, err = a.Authorize(2_000_000, 5_000_000, 0, "example.com")
+	_, err = a.Authorize(Hold{AmountMicro: 2_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("second Authorize: %v", err)
 	}
-	_, err = a.Authorize(2_000_000, 5_000_000, 0, "example.com")
+	_, err = a.Authorize(Hold{AmountMicro: 2_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != ErrBudget {
 		t.Fatalf("third Authorize: want ErrBudget (6M > 5M), got %v", err)
 	}

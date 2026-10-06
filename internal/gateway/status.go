@@ -22,6 +22,14 @@ type Status struct {
 	PaymentNetwork    string          `json:"payment_network,omitempty"`
 	LastBlock         *BlockRecord    `json:"last_block,omitempty"`
 	LastFetchError    *FetchErrorInfo `json:"last_fetch_error,omitempty"`
+	Agents            []AgentSpend    `json:"agents,omitempty"`
+}
+
+// AgentSpend is one row of /status.agents (55.6).
+type AgentSpend struct {
+	Label           string `json:"label"`
+	SpentTodayMicro int64  `json:"spent_today_micro"`
+	CapMicro        int64  `json:"cap_micro"`
 }
 
 // FetchErrorInfo carries details of the last fetch error for UI consumption.
@@ -89,6 +97,7 @@ func (g *Gateway) Status(version string) (*Status, error) {
 	if e := g.lastError(); e != nil {
 		st.LastFetchError = e
 	}
+	st.Agents = g.agentSpendRows(pol)
 	return st, nil
 }
 

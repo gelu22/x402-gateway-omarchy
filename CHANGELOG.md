@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.26] — 2026-10-06
+
+### Added
+
+- **Per-agent daily spend limits.** Default and per-label overrides (`agent_daily_cap_micro_usdc` / `agent_caps_micro_usdc`) live in policy; `/status.agents` shows spent/cap; panel AI AGENTS rows show spent/limit with inline edit through the existing sudo-MFA gate. Denial code: `agent_cap_exceeded` (overridable by the owner). This is a shield against an over-eager agent under a stable label — **not** a security boundary between agents (same Unix user can spoof or rotate labels). The **global daily cap** remains the hard local ceiling.
+
 ## [0.1.25] — 2026-10-06
 
 ### Added

@@ -321,3 +321,97 @@ func TestSaveRejectsExpandedPolicy(t *testing.T) {
 		t.Fatal("Save must reject expanded networks")
 	}
 }
+
+func TestAgentCapMicroMissingFields(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"daily_cap_micro_usdc":5000000,"domain_sub_cap_percent":20,` +
+		`"allowed_networks":["eip155:84532"],"pinned_assets":{"eip155:84532":"` + usdc + `"}}`
+	if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AgentCapMicro("x") != 0 || p.AgentCapMicro("") != 0 {
+		t.Fatalf("missing agent fields must yield 0, got default=%d x=%d", p.AgentDailyCapMicro, p.AgentCapMicro("x"))
+	}
+}
+
+func TestAgentCapMicroDefaultAndOverride(t *testing.T) {
+	p := Default()
+	p.AgentDailyCapMicro = 1_000_000
+	if p.AgentCapMicro("codex") != 1_000_000 || p.AgentCapMicro("") != 1_000_000 {
+		t.Fatalf("default must apply to every label incl empty, got %d / %d", p.AgentCapMicro("codex"), p.AgentCapMicro(""))
+	}
+	p.AgentCapsMicro = map[string]int64{"codex": 200_000}
+	if p.AgentCapMicro("codex") != 200_000 {
+		t.Fatalf("override want 200000, got %d", p.AgentCapMicro("codex"))
+	}
+	if p.AgentCapMicro("claude") != 1_000_000 {
+		t.Fatalf("non-override want default, got %d", p.AgentCapMicro("claude"))
+	}
+}
+
+func TestAgentCapMicroZeroMeanings(t *testing.T) {
+	p := Default()
+	// Default 0 = feature off → AgentCapMicro is 0 for all (no map entry).
+	if p.AgentCapMicro("codex") != 0 {
+		t.Fatalf("feature off want 0, got %d", p.AgentCapMicro("codex"))
+	}
+	// Explicit override 0 with feature on = that agent does not auto-pay.
+	p.AgentDailyCapMicro = 1_000_000
+	p.AgentCapsMicro = map[string]int64{"codex": 0}
+	if p.AgentCapMicro("codex") != 0 {
+		t.Fatalf("override 0 want 0, got %d", p.AgentCapMicro("codex"))
+	}
+	if p.AgentCapMicro("other") != 1_000_000 {
+		t.Fatalf("other want default, got %d", p.AgentCapMicro("other"))
+	}
+}
+
+func TestLoadAgentCapsRejectsBad(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "policy.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := `"allowed_networks":["eip155:84532"],"pinned_assets":{"eip155:84532":"` + usdc + `"}`
+	write(`{"agent_daily_cap_micro_usdc":-1,` + base + `}`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("negative agent_daily_cap must fail")
+	}
+	write(`{"agent_caps_micro_usdc":{"Bad":1000},` + base + `}`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("uppercase label must fail")
+	}
+	write(`{"agent_caps_micro_usdc":{"codex":-5},` + base + `}`)
+	if _, err := Load(dir); err == nil {
+		t.Fatal("negative override must fail")
+	}
+}
+
+func TestSaveLoadAgentCapsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	p := Default()
+	p.AgentDailyCapMicro = 1_000_000
+	p.AgentCapsMicro = map[string]int64{"codex": 200_000, "claude": 0}
+	if err := p.Save(dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentDailyCapMicro != 1_000_000 {
+		t.Fatalf("default round-trip: got %d", got.AgentDailyCapMicro)
+	}
+	if got.AgentCapMicro("codex") != 200_000 || got.AgentCapMicro("claude") != 0 {
+		t.Fatalf("map round-trip: %+v", got.AgentCapsMicro)
+	}
+	if got.AgentCapMicro("") != 1_000_000 {
+		t.Fatalf("empty label want default, got %d", got.AgentCapMicro(""))
+	}
+}

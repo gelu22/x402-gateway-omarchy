@@ -1,5 +1,6 @@
 // Package policy enforces client-side spend limits (THREAT-MODEL T1).
-// Split: policy.go (types, Load, Save, validate, Default), check.go (Check).
+// Split: policy.go (types, Load, Save, Default, AgentCapMicro),
+// validate.go (validate, narrowPins), check.go (Check).
 package policy
 
 import (
@@ -16,6 +17,7 @@ import (
 const (
 	DefaultDailyCapMicro       = 5_000_000
 	DefaultDomainSubCapPercent = 20
+	MaxAgentCaps               = 64
 	filePerms                  = 0o600
 )
 
@@ -25,6 +27,14 @@ type Policy struct {
 	BuilderCode         string            `json:"builder_code,omitempty"`
 	AllowedNetworks     []string          `json:"allowed_networks"`
 	PinnedAssets        map[string]string `json:"pinned_assets"`
+	// AgentDailyCapMicro is the default per-agent daily limit (micro-USDC).
+	// 0 = per-agent caps disabled (today's behavior). Callers (55.4) must treat
+	// a missing map entry + 0 default as "no agent-cap check", not "always ask".
+	AgentDailyCapMicro int64 `json:"agent_daily_cap_micro_usdc"`
+	// AgentCapsMicro overrides AgentDailyCapMicro per non-empty label.
+	// An explicit 0 for a label means that agent does not auto-pay (like
+	// daily_cap 0 = always ask) — distinct from a 0 default (feature off).
+	AgentCapsMicro map[string]int64 `json:"agent_caps_micro_usdc,omitempty"`
 }
 
 func Default() *Policy {
@@ -37,6 +47,7 @@ func Default() *Policy {
 		DomainSubCapPercent: DefaultDomainSubCapPercent,
 		AllowedNetworks:     chains.SupportedCAIP2s(),
 		PinnedAssets:        pinned,
+		AgentDailyCapMicro:  0,
 	}
 }
 
@@ -46,6 +57,8 @@ type policyFile struct {
 	BuilderCode         string            `json:"builder_code"`
 	AllowedNetworks     []string          `json:"allowed_networks"`
 	PinnedAssets        map[string]string `json:"pinned_assets"`
+	AgentDailyCapMicro  *int64            `json:"agent_daily_cap_micro_usdc"`
+	AgentCapsMicro      map[string]int64  `json:"agent_caps_micro_usdc"`
 }
 
 func Load(stateDir string) (*Policy, error) {
@@ -79,6 +92,15 @@ func Load(stateDir string) (*Policy, error) {
 		p.AllowedNetworks = nets
 		p.PinnedAssets = pins
 	}
+	if pf.AgentDailyCapMicro != nil {
+		p.AgentDailyCapMicro = *pf.AgentDailyCapMicro
+	}
+	if pf.AgentCapsMicro != nil {
+		p.AgentCapsMicro = make(map[string]int64, len(pf.AgentCapsMicro))
+		for k, v := range pf.AgentCapsMicro {
+			p.AgentCapsMicro[k] = v
+		}
+	}
 	if err := p.validate(); err != nil {
 		return nil, fmt.Errorf("policy: invalid %s: %w", path, err)
 	}
@@ -105,59 +127,17 @@ func (p *Policy) Save(stateDir string) error {
 	return os.Rename(tmp, path)
 }
 
-func (p *Policy) validate() error {
-	if p.DailyCapMicro < 0 {
-		return fmt.Errorf("daily cap must not be negative")
+// AgentCapMicro returns the daily micro-USDC limit for label: map override,
+// else AgentDailyCapMicro. Empty label uses the default (no "" key allowed).
+// See field comments for the two meanings of 0.
+func (p *Policy) AgentCapMicro(label string) int64 {
+	if p == nil {
+		return 0
 	}
-	if p.DomainSubCapPercent < 0 || p.DomainSubCapPercent > 100 {
-		return fmt.Errorf("domain_sub_cap_percent must be 0-100")
-	}
-	if len(p.AllowedNetworks) == 0 || len(p.PinnedAssets) == 0 {
-		return fmt.Errorf("no allowed networks/assets")
-	}
-	if _, _, err := narrowPins(p.AllowedNetworks, p.PinnedAssets); err != nil {
-		return err
-	}
-	return nil
-}
-
-// narrowPins enforces chains SSOT: file may only narrow SupportedCAIP2s /
-// USDCContract — never extend (THREAT-MODEL T1 / 45.6). Rejects unknown
-// networks, wrong pins, or pins not listed in allowed_networks.
-func narrowPins(nets []string, pins map[string]string) ([]string, map[string]string, error) {
-	outNets := make([]string, 0, len(nets))
-	outPins := make(map[string]string, len(nets))
-	seen := make(map[string]bool, len(nets))
-	for _, n := range nets {
-		n = strings.TrimSpace(n)
-		if n == "" {
-			return nil, nil, fmt.Errorf("empty network in allowed_networks")
-		}
-		if !chains.IsSupported(n) {
-			return nil, nil, fmt.Errorf("unsupported network %q (policy may only narrow chains SSOT)", n)
-		}
-		if seen[n] {
-			continue
-		}
-		want := chains.USDCContract(n)
-		got, ok := pins[n]
-		if !ok {
-			return nil, nil, fmt.Errorf("missing pinned_assets for %s", n)
-		}
-		if !strings.EqualFold(strings.TrimSpace(got), want) {
-			return nil, nil, fmt.Errorf("pinned asset for %s must be code USDC %s", n, want)
-		}
-		seen[n] = true
-		outNets = append(outNets, n)
-		outPins[n] = want
-	}
-	for net := range pins {
-		if !seen[net] {
-			return nil, nil, fmt.Errorf("pinned_assets network %q not in allowed_networks or unsupported", net)
+	if p.AgentCapsMicro != nil {
+		if v, ok := p.AgentCapsMicro[label]; ok {
+			return v
 		}
 	}
-	if len(outNets) == 0 {
-		return nil, nil, fmt.Errorf("no allowed networks/assets")
-	}
-	return outNets, outPins, nil
+	return p.AgentDailyCapMicro
 }

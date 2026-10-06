@@ -233,6 +233,30 @@ QtObject {
         postCap(body, Model.mfaSudoReason("policy", capUsd, usd, enrolled), onSaved)
     }
 
+    // saveAgentCap GETs current overrides, then POSTs the replaced map via sudo.
+    function saveAgentCap(label, usd, onSaved) {
+        busyRequested(true)
+        policyProc.pendingBody = ""
+        policyProc.stdinEnabled = false
+        policyProc.command = Model.buildCommand(socketPath, Model.Endpoint.POLICY, Model.Method.GET)
+        policyProc.onDone = function(raw) {
+            var map = {}
+            try {
+                var o = JSON.parse(raw)
+                if (o && o.agent_caps_micro_usdc && typeof o.agent_caps_micro_usdc === "object")
+                    map = o.agent_caps_micro_usdc
+            } catch (e) { map = {} }
+            var built = Model.agentCapsBody(map, label, usd)
+            if (built.error !== "") {
+                busyRequested(false)
+                panelErrorRequested(built.error)
+                return
+            }
+            postCap(built.body, Model.mfaSudoReason("policy", 0, usd, enrolled), onSaved)
+        }
+        policyProc.running = true
+    }
+
     function submitMfaCode(code) {
         busy = true
         var path = (dialogMode === "verify")

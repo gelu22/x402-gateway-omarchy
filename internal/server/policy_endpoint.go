@@ -8,10 +8,13 @@ import (
 )
 
 // policyBody is the /policy POST body. Pointers distinguish "absent" from an
-// explicit 0 (0 = always ask).
+// explicit 0 (0 = always ask / feature off). AgentCapsMicro nil = leave map
+// unchanged; non-nil (including empty) replaces the whole map.
 type policyBody struct {
-	DailyCapMicro       *int64 `json:"daily_cap_micro_usdc"`
-	DomainSubCapPercent *int   `json:"domain_sub_cap_percent,omitempty"`
+	DailyCapMicro       *int64           `json:"daily_cap_micro_usdc"`
+	DomainSubCapPercent *int             `json:"domain_sub_cap_percent,omitempty"`
+	AgentDailyCapMicro  *int64           `json:"agent_daily_cap_micro_usdc"`
+	AgentCapsMicro      map[string]int64 `json:"agent_caps_micro_usdc"`
 }
 
 // handlePolicy GET returns the active policy; POST updates and persists it
@@ -27,48 +30,59 @@ func (s *Server) handlePolicy(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "bad_request", err)
 			return
 		}
-		if body.DailyCapMicro == nil {
-			writeErr(w, http.StatusBadRequest, "bad_request", fmt.Errorf("daily_cap_micro_usdc is required"))
+		if body.DailyCapMicro == nil && body.AgentDailyCapMicro == nil && body.AgentCapsMicro == nil {
+			writeErr(w, http.StatusBadRequest, "bad_request",
+				fmt.Errorf("daily_cap_micro_usdc or agent_* fields required"))
 			return
 		}
 		// Range checks are client errors, so they answer 400 — and they run before
 		// the sudo gate: asking for a TOTP code to then reject the value would
-		// waste the user's verification window. Fail-closed does not mean "every
-		// rejection is a 5xx"; an I/O failure below is still a 500.
-		// 0 is valid (auto-pay off), only negatives are not.
-		if *body.DailyCapMicro < 0 {
-			writeErr(w, http.StatusBadRequest, "bad_request",
-				fmt.Errorf("daily_cap_micro_usdc must not be negative"))
-			return
-		}
-		if body.DomainSubCapPercent != nil && (*body.DomainSubCapPercent < 0 || *body.DomainSubCapPercent > 100) {
-			writeErr(w, http.StatusBadRequest, "bad_request",
-				fmt.Errorf("domain_sub_cap_percent must be within 0..100"))
-			return
-		}
-		// Raising the cap raises spending authority: require a fresh, CDP-attested
-		// MFA verification before the change is persisted.
-		if !s.requireSudoMFA(w) {
-			return
-		}
+		// waste the user's verification window.
 		current := s.Gateway.CurrentPolicy()
 		updated := *current
-		updated.DailyCapMicro = *body.DailyCapMicro
-		// The sub-cap is config-file-only (no UI); preserve it unless posted.
+		if body.DailyCapMicro != nil {
+			updated.DailyCapMicro = *body.DailyCapMicro
+		}
 		if body.DomainSubCapPercent != nil {
 			updated.DomainSubCapPercent = *body.DomainSubCapPercent
+		}
+		if body.AgentDailyCapMicro != nil {
+			updated.AgentDailyCapMicro = *body.AgentDailyCapMicro
+		}
+		if body.AgentCapsMicro != nil {
+			updated.AgentCapsMicro = copyAgentCaps(body.AgentCapsMicro)
+		}
+		if err := updated.Validate(); err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_request", err)
+			return
+		}
+		if !s.requireSudoMFA(w) {
+			return
 		}
 		if err := updated.Save(filepath.Dir(s.Gateway.PolicyPath)); err != nil {
 			writeErr(w, http.StatusInternalServerError, "policy_save_failed", err)
 			return
 		}
 		s.Gateway.SetPolicy(&updated)
-		// Audit real changes only (011.2, file sink): GET/400/500 return above.
 		logPolicyCaps(s.AuditLogger,
 			current.DailyCapMicro, updated.DailyCapMicro,
 			current.DomainSubCapPercent, updated.DomainSubCapPercent)
+		logPolicyAgentCaps(s.AuditLogger,
+			current.AgentDailyCapMicro, updated.AgentDailyCapMicro,
+			current.AgentCapsMicro, updated.AgentCapsMicro)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func copyAgentCaps(in map[string]int64) map[string]int64 {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

@@ -271,7 +271,7 @@ func TestSignRefusesWithoutAccountedAmount(t *testing.T) {
 // domain so the per-domain cap sees it.
 func commitBudget(t *testing.T, gw *Gateway, amountMicro int64, domain string) {
 	t.Helper()
-	token, err := gw.Budget.Authorize(amountMicro, 1<<62, 0, domain)
+	token, err := gw.Budget.Authorize(budget.Hold{AmountMicro: amountMicro, Domain: domain}, budget.Caps{DailyMicro: 1 << 62, DomainMicro: 0})
 	if err != nil {
 		t.Fatal(err)
 	}

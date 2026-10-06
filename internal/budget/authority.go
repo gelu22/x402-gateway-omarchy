@@ -21,11 +21,12 @@ import (
 )
 
 // ErrBudget means the authorization would exceed the daily cap. ErrSubCap means
-// it would exceed the per-domain cap. They are distinct so the caller can name
-// the sharper limit rather than reporting every denial as "budget gone".
+// it would exceed the per-domain cap. ErrAgentCap means the per-agent daily
+// limit. They are distinct so the caller can name the sharper limit.
 var (
-	ErrBudget = fmt.Errorf("budget: exceeded")
-	ErrSubCap = fmt.Errorf("budget: domain cap exceeded")
+	ErrBudget   = fmt.Errorf("budget: exceeded")
+	ErrSubCap   = fmt.Errorf("budget: domain cap exceeded")
+	ErrAgentCap = fmt.Errorf("budget: agent cap exceeded")
 )
 
 // ReservationTTL bounds how long an uncommitted reservation holds budget
@@ -40,18 +41,19 @@ const filePerms = 0o600
 type reservation struct {
 	AmountMicro int64     `json:"amount_micro"`
 	Domain      string    `json:"domain"`
+	Agent       string    `json:"agent"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	Signed      bool      `json:"signed"`
 }
 
-// state is the on-disk shape. Reserved is keyed by token. SpentByDomain is the
-// committed per-domain total, kept HERE rather than in the Sellers registry so
-// that the per-domain cap is decided in one transaction with the reservation —
-// a separate store left a window where a settled payment was in neither (47.1).
+// state is the on-disk shape. Reserved is keyed by token. SpentByDomain /
+// SpentByAgent are committed totals kept HERE so every cap is decided in one
+// transaction with the reservation (47.1 / 55.3).
 type state struct {
 	Day           string                 `json:"day"`
 	Spent         int64                  `json:"spent_micro"`
 	SpentByDomain map[string]int64       `json:"spent_by_domain_micro"`
+	SpentByAgent  map[string]int64       `json:"spent_by_agent_micro"`
 	Reserved      map[string]reservation `json:"reserved"`
 }
 
@@ -82,13 +84,28 @@ func satAddSpent(spent, amount int64) int64 {
 	return spent + amount
 }
 
+// Hold is the amount, seller domain, and agent label for one Authorize call.
+type Hold struct {
+	AmountMicro int64
+	Domain      string
+	Agent       string
+}
+
+// Caps are the daily, per-domain, and per-agent limits for one Authorize call.
+// DomainMicro <= 0 disables the domain sub-cap; AgentMicro <= 0 disables the
+// agent cap (ledger for the label still grows on promote).
+type Caps struct {
+	DailyMicro  int64
+	DomainMicro int64
+	AgentMicro  int64
+}
+
 // Authorize atomically checks the daily cap and the per-domain sub-cap,
 // then durably reserves the amount. Returns a token for Commit/Release/MarkSigned.
 // A persistence failure returns an error — the caller must NOT sign.
-// subcapMicro <= 0 disables the sub-cap for this call.
-func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain string) (string, error) {
-	if amountMicro <= 0 {
-		return "", fmt.Errorf("budget: refusing non-positive amount %d", amountMicro)
+func (a *Authority) Authorize(h Hold, c Caps) (string, error) {
+	if h.AmountMicro <= 0 {
+		return "", fmt.Errorf("budget: refusing non-positive amount %d", h.AmountMicro)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -97,18 +114,24 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 		return "", err
 	}
 	total := st.Spent + reservedTotal(st)
-	if total > math.MaxInt64-amountMicro || total+amountMicro > capMicro {
+	if total > math.MaxInt64-h.AmountMicro || total+h.AmountMicro > c.DailyMicro {
 		return "", ErrBudget
 	}
-	if subcapMicro > 0 {
+	if c.DomainMicro > 0 {
 		// Committed plus in-flight, both from THIS state and under THIS lock.
 		// Reading the committed per-domain total from another store left a
 		// window: a settled payment had already left Reserved but was not yet
 		// visible to the other store, so a concurrent request authorised against
 		// a stale balance and two ordinary requests could exceed the cap (47.1).
-		domainTotal := satAddSpent(st.SpentByDomain[domain], reservedForDomain(st, domain))
-		if domainTotal > math.MaxInt64-amountMicro || domainTotal+amountMicro > subcapMicro {
+		domainTotal := satAddSpent(st.SpentByDomain[h.Domain], reservedForDomain(st, h.Domain))
+		if domainTotal > math.MaxInt64-h.AmountMicro || domainTotal+h.AmountMicro > c.DomainMicro {
 			return "", ErrSubCap
+		}
+	}
+	if c.AgentMicro > 0 {
+		agentTotal := satAddSpent(st.SpentByAgent[h.Agent], reservedForAgent(st, h.Agent))
+		if agentTotal > math.MaxInt64-h.AmountMicro || agentTotal+h.AmountMicro > c.AgentMicro {
+			return "", ErrAgentCap
 		}
 	}
 	// Token = wall clock + monotonic sequence (46.6, F10). The clock alone is
@@ -118,8 +141,9 @@ func (a *Authority) Authorize(amountMicro, capMicro, subcapMicro int64, domain s
 	a.seq++
 	token := fmt.Sprintf("r%d-%d", a.now().UnixNano(), a.seq)
 	st.Reserved[token] = reservation{
-		AmountMicro: amountMicro,
-		Domain:      domain,
+		AmountMicro: h.AmountMicro,
+		Domain:      h.Domain,
+		Agent:       h.Agent,
 		ExpiresAt:   a.now().Add(ReservationTTL),
 	}
 	if err := a.persist(st); err != nil {

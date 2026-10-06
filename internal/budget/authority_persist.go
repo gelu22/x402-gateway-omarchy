@@ -30,6 +30,7 @@ func (a *Authority) load() (state, error) {
 		return state{
 			Day:           a.today(),
 			SpentByDomain: map[string]int64{},
+			SpentByAgent:  map[string]int64{},
 			Reserved:      map[string]reservation{},
 		}
 	}
@@ -48,6 +49,7 @@ func (a *Authority) load() (state, error) {
 	if st.Day != today {
 		carry := int64(0)
 		carryByDomain := map[string]int64{}
+		carryByAgent := map[string]int64{}
 		// Unsigned holds that have not expired must survive the rollover: the
 		// caller still holds the token and will call MarkSigned. Dropping them
 		// made MarkSigned a silent no-op (unknown token), so a payment
@@ -59,6 +61,7 @@ func (a *Authority) load() (state, error) {
 				// The domain share carries too, or a payment signed before
 				// midnight escapes the new day's domain cap (47.1).
 				carryByDomain[r.Domain] = satAddSpent(carryByDomain[r.Domain], r.AmountMicro)
+				carryByAgent[r.Agent] = satAddSpent(carryByAgent[r.Agent], r.AmountMicro)
 				continue
 			}
 			if a.now().After(r.ExpiresAt) {
@@ -67,7 +70,10 @@ func (a *Authority) load() (state, error) {
 			r.ExpiresAt = a.now().Add(ReservationTTL)
 			freshHold[k] = r // stays UNSIGNED: no signature, no charge (44.4b)
 		}
-		st = state{Day: today, Spent: carry, SpentByDomain: carryByDomain, Reserved: freshHold}
+		st = state{
+			Day: today, Spent: carry, SpentByDomain: carryByDomain,
+			SpentByAgent: carryByAgent, Reserved: freshHold,
+		}
 		dirty = true
 	}
 	if st.Reserved == nil {
@@ -80,6 +86,10 @@ func (a *Authority) load() (state, error) {
 		st.SpentByDomain = map[string]int64{}
 		dirty = true
 	}
+	if st.SpentByAgent == nil {
+		st.SpentByAgent = map[string]int64{}
+		dirty = true
+	}
 	for k, r := range st.Reserved {
 		if !a.now().After(r.ExpiresAt) {
 			continue
@@ -87,6 +97,7 @@ func (a *Authority) load() (state, error) {
 		if r.Signed {
 			st.Spent = satAddSpent(st.Spent, r.AmountMicro)
 			st.SpentByDomain[r.Domain] = satAddSpent(st.SpentByDomain[r.Domain], r.AmountMicro)
+			st.SpentByAgent[r.Agent] = satAddSpent(st.SpentByAgent[r.Agent], r.AmountMicro)
 		}
 		delete(st.Reserved, k)
 		dirty = true
@@ -99,6 +110,12 @@ func (a *Authority) load() (state, error) {
 	for d, v := range st.SpentByDomain {
 		if v < 0 {
 			st.SpentByDomain[d] = 0
+			dirty = true
+		}
+	}
+	for label, v := range st.SpentByAgent {
+		if v < 0 {
+			st.SpentByAgent[label] = 0
 			dirty = true
 		}
 	}
@@ -140,6 +157,21 @@ func reservedForDomain(st state, domain string) int64 {
 	var sum int64
 	for _, r := range st.Reserved {
 		if r.Domain != domain {
+			continue
+		}
+		if sum > math.MaxInt64-r.AmountMicro {
+			return math.MaxInt64
+		}
+		sum += r.AmountMicro
+	}
+	return sum
+}
+
+// reservedForAgent returns the sum of reservations for one agent label.
+func reservedForAgent(st state, agent string) int64 {
+	var sum int64
+	for _, r := range st.Reserved {
+		if r.Agent != agent {
 			continue
 		}
 		if sum > math.MaxInt64-r.AmountMicro {

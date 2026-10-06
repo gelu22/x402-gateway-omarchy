@@ -11,7 +11,7 @@ func TestTTLSignedPromotesToSpent(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestMarkSignedUnknownNoop(t *testing.T) {
 	if err := a.MarkSigned("nonexistent"); err != nil {
 		t.Fatalf("MarkSigned(unknown): %v", err)
 	}
-	token, err := a.Authorize(500_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 500_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestMarkSignedIdempotent(t *testing.T) {
 	now := time.Now()
 	clock := now
 	a := NewAuthority(dir, func() time.Time { return clock })
-	token, _ := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, _ := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err := a.MarkSigned(token); err != nil {
 		t.Fatalf("MarkSigned: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestDayRolloverSignedPromotesToSpent(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestDayRolloverUnsignedDrops(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	if _, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com"); err != nil {
+	if _, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
 	a2 := NewAuthority(dir, func() time.Time { return now.Add(24 * time.Hour) })
@@ -130,14 +130,14 @@ func TestDayRolloverMixedSignedAndCommitted(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	tokPaid, err := a.Authorize(2_000_000, 10_000_000, 0, "a.com")
+	tokPaid, err := a.Authorize(Hold{AmountMicro: 2_000_000, Domain: "a.com"}, Caps{DailyMicro: 10_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize paid: %v", err)
 	}
 	if err := a.Commit(tokPaid); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	tokSig, err := a.Authorize(3_000_000, 10_000_000, 0, "b.com")
+	tokSig, err := a.Authorize(Hold{AmountMicro: 3_000_000, Domain: "b.com"}, Caps{DailyMicro: 10_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize signed: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestMarkSignedThenCrashBeforeCommit_TTLKeepsCharge(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	a := NewAuthority(dir, func() time.Time { return now })
-	token, err := a.Authorize(750_000, 5_000_000, 0, "seller.example")
+	token, err := a.Authorize(Hold{AmountMicro: 750_000, Domain: "seller.example"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestMarkSignedThenCrashBeforeCommit_TTLKeepsCharge(t *testing.T) {
 		t.Fatalf("want 750000 kept after crash window, got %d", total)
 	}
 	// Cap still enforced against the promoted Spent.
-	if _, err := a2.Authorize(5_000_000, 5_000_000, 0, "other"); err != ErrBudget {
+	if _, err := a2.Authorize(Hold{AmountMicro: 5_000_000, Domain: "other"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != ErrBudget {
 		t.Fatalf("want ErrBudget after charge kept, got %v", err)
 	}
 }
@@ -201,7 +201,7 @@ func TestMarkSignedThenCrashBeforeCommit_TTLKeepsCharge(t *testing.T) {
 // buggy Release after MarkSigned must keep the charge (promote to Spent).
 func TestReleaseAfterMarkSignedPromotesToSpent(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestReleaseAfterMarkSignedMovesDomainTotal(t *testing.T) {
 	a, _ := newTestAuthority(t)
 	const domain = "example.com"
 	const amount = int64(1_000_000)
-	token, err := a.Authorize(amount, 5_000_000, 0, domain)
+	token, err := a.Authorize(Hold{AmountMicro: amount, Domain: domain}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestReleaseAfterMarkSignedMovesDomainTotal(t *testing.T) {
 // TestReleaseUnsignedStillFrees — pre-sig path must keep dropping the hold.
 func TestReleaseUnsignedStillFrees(t *testing.T) {
 	a, _ := newTestAuthority(t)
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}

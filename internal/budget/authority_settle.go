@@ -59,6 +59,7 @@ func (a *Authority) Commit(token string) error {
 	// The domain total moves in the same transaction, so the per-domain cap can
 	// never observe a committed payment as absent (47.1).
 	st.SpentByDomain[r.Domain] = satAddSpent(st.SpentByDomain[r.Domain], r.AmountMicro)
+	st.SpentByAgent[r.Agent] = satAddSpent(st.SpentByAgent[r.Agent], r.AmountMicro)
 	return a.persist(st)
 }
 
@@ -82,8 +83,45 @@ func (a *Authority) Release(token string) error {
 		// Same transaction as Commit and the TTL promote: a signed Release
 		// must not leave the domain cap blind (51.2).
 		st.SpentByDomain[r.Domain] = satAddSpent(st.SpentByDomain[r.Domain], r.AmountMicro)
+		st.SpentByAgent[r.Agent] = satAddSpent(st.SpentByAgent[r.Agent], r.AmountMicro)
 	}
 	return a.persist(st)
+}
+
+// AgentTotal returns today's committed total for one agent label, plus anything
+// still reserved on it (55.3).
+func (a *Authority) AgentTotal(label string) (int64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := a.load()
+	if err != nil {
+		return 0, err
+	}
+	return satAddSpent(st.SpentByAgent[label], reservedForAgent(st, label)), nil
+}
+
+// AgentTotals returns committed+reserved per agent label under one lock (55.6).
+func (a *Authority) AgentTotals() (map[string]int64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, err := a.load()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64)
+	seen := make(map[string]bool)
+	for label := range st.SpentByAgent {
+		out[label] = satAddSpent(st.SpentByAgent[label], reservedForAgent(st, label))
+		seen[label] = true
+	}
+	for _, r := range st.Reserved {
+		if seen[r.Agent] {
+			continue
+		}
+		out[r.Agent] = reservedForAgent(st, r.Agent)
+		seen[r.Agent] = true
+	}
+	return out, nil
 }
 
 // Today returns the current daily total (spent + reserved) for display.

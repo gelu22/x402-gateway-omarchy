@@ -94,6 +94,7 @@ Panel {
     property string configNetwork: Model.DEFAULT_NETWORK
     property var rememberedUrls: []
     property var blockedRows: []
+    property var statusSnapshot: null
     property bool configLoaded: false
 
     // Timestamp of the override request already surfaced (dismissed or shown);
@@ -161,6 +162,7 @@ Panel {
                 }
                 root.online = true
                 var num = function(v) { var n = Number(v || 0); return isFinite(n) ? n : 0 }
+                root.statusSnapshot = Model.parseStatus(raw)
                 root.walletAddress = o.wallet_address || ""
                 root.paused = o.paused === true
                 root.spendToday = num(o.spend_today_usdc)
@@ -668,9 +670,12 @@ Panel {
                 }
 
                 AgentSection {
+                    id: agentSection
                     width: parent.width
                     scriptPath: root.agentScriptPath
+                    statusSnapshot: root.statusSnapshot
                     onFailed: function(msg) { root.fail(msg) }
+                    onSaveAgentCap: function(label, usd) { root.saveAgentCapValue(label, usd) }
                 }
 
                 BlockedSection {
@@ -905,6 +910,13 @@ Panel {
             if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
                 root.bar.shell.updateEntryInline(root.moduleName, entry)
             console.warn(Model.LOG_TAG + " budget saved: " + Model.formatUsdExact(usd))
+        })
+    }
+
+    function saveAgentCapValue(label, usd) {
+        root.errorMessage = ""
+        mfa.saveAgentCap(label, usd, function() {
+            console.warn(Model.LOG_TAG + " agent cap saved: " + label + "=" + Model.formatUsdExact(usd))
         })
     }
 

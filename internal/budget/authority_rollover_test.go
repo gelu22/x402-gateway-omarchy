@@ -15,7 +15,7 @@ func TestDayRolloverCarriesFreshUnsignedHold(t *testing.T) {
 	dir := t.TempDir()
 	day1 := time.Date(2026, 10, 1, 23, 59, 0, 0, time.UTC)
 	a := NewAuthority(dir, atClock(day1))
-	token, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com")
+	token, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestDayRolloverExpiredUnsignedDrops(t *testing.T) {
 	dir := t.TempDir()
 	day1 := time.Date(2026, 10, 1, 23, 59, 0, 0, time.UTC)
 	a := NewAuthority(dir, atClock(day1))
-	if _, err := a.Authorize(1_000_000, 5_000_000, 0, "example.com"); err != nil {
+	if _, err := a.Authorize(Hold{AmountMicro: 1_000_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0}); err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
 
@@ -66,18 +66,18 @@ func TestDayRolloverMixedSignedAndFreshUnsigned(t *testing.T) {
 	day1 := time.Date(2026, 10, 1, 23, 59, 0, 0, time.UTC)
 	a := NewAuthority(dir, atClock(day1))
 
-	signed, err := a.Authorize(100_000, 5_000_000, 0, "signed.example.com")
+	signed, err := a.Authorize(Hold{AmountMicro: 100_000, Domain: "signed.example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize signed: %v", err)
 	}
 	if err := a.MarkSigned(signed); err != nil {
 		t.Fatalf("MarkSigned: %v", err)
 	}
-	fresh, err := a.Authorize(200_000, 5_000_000, 0, "fresh.example.com")
+	fresh, err := a.Authorize(Hold{AmountMicro: 200_000, Domain: "fresh.example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize fresh: %v", err)
 	}
-	expired, err := a.Authorize(300_000, 5_000_000, 0, "expired.example.com")
+	expired, err := a.Authorize(Hold{AmountMicro: 300_000, Domain: "expired.example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 	if err != nil {
 		t.Fatalf("Authorize expired: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestTokensAreUniqueOnAFrozenClock(t *testing.T) {
 
 	seen := make(map[string]bool)
 	for i := 0; i < 50; i++ {
-		token, err := a.Authorize(1_000, 5_000_000, 0, "example.com")
+		token, err := a.Authorize(Hold{AmountMicro: 1_000, Domain: "example.com"}, Caps{DailyMicro: 5_000_000, DomainMicro: 0})
 		if err != nil {
 			t.Fatalf("Authorize %d: %v", i, err)
 		}
@@ -151,13 +151,13 @@ func TestRolloverIsNotABudgetLoosener(t *testing.T) {
 	day1 := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	capMicro := int64(1_000_000)
 	a := NewAuthority(dir, atClock(day1))
-	if _, err := a.Authorize(capMicro, capMicro, 0, "example.com"); err != nil {
+	if _, err := a.Authorize(Hold{AmountMicro: capMicro, Domain: "example.com"}, Caps{DailyMicro: capMicro, DomainMicro: 0}); err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
 
 	day2 := day1.Add(2 * time.Minute)
 	a2 := NewAuthority(dir, atClock(day2))
-	if _, err := a2.Authorize(1, capMicro, 0, "example.com"); err != ErrBudget {
+	if _, err := a2.Authorize(Hold{AmountMicro: 1, Domain: "example.com"}, Caps{DailyMicro: capMicro, DomainMicro: 0}); err != ErrBudget {
 		t.Fatalf("want ErrBudget after rollover carried the full cap, got %v", err)
 	}
 }

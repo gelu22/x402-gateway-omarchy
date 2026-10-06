@@ -46,6 +46,10 @@ function loadModelJS() {
       parseBlocked: (typeof parseBlocked !== "undefined") ? parseBlocked : undefined,
       parseHistory: (typeof parseHistory !== "undefined") ? parseHistory : undefined,
       historyRows: (typeof historyRows !== "undefined") ? historyRows : undefined,
+      agentSpendRows: (typeof agentSpendRows !== "undefined") ? agentSpendRows : undefined,
+      agentCapsBody: (typeof agentCapsBody !== "undefined") ? agentCapsBody : undefined,
+      agentLimitCaption: (typeof agentLimitCaption !== "undefined") ? agentLimitCaption : undefined,
+      errorLabel: (typeof errorLabel !== "undefined") ? errorLabel : undefined,
       outcomeLabel: (typeof outcomeLabel !== "undefined") ? outcomeLabel : undefined,
       relativeWhen: (typeof relativeWhen !== "undefined") ? relativeWhen : undefined,
       blockedAmountText: (typeof blockedAmountText !== "undefined") ? blockedAmountText : undefined,
@@ -1523,5 +1527,53 @@ describe("parseHistory / historyRows (54.8)", () => {
     const cmd = M.buildCommand("gw.sock", M.Endpoint.HISTORY + "?limit=20", "GET", "");
     assert.ok(cmd.includes("http://localhost/history?limit=20"));
     assert.ok(!cmd.includes("--data-binary"));
+  });
+});
+
+describe("agentSpendRows / agentCapsBody / errorLabel (55.7)", () => {
+  const M = loadModelJS();
+  it("agentSpendRows matches label to agent name", () => {
+    const status = { raw: { agents: [
+      { label: "codex", spent_today_micro: 1_500_000, cap_micro: 2_000_000 },
+      { label: "claude", spent_today_micro: 0, cap_micro: 0 },
+    ] } };
+    const agents = [{ name: "codex", integrated: true }, { name: "claude", integrated: false, connectable: true }];
+    const rows = M.agentSpendRows(status, agents);
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[0].name, "codex");
+    assert.strictEqual(rows[0].spentText, "1.50");
+    assert.strictEqual(rows[0].limitText, "2.00");
+    assert.strictEqual(rows[1].limitText, "asks every time");
+  });
+  it("agentLimitCaption: default 0 is no limit", () => {
+    const status = { raw: { agents: [{ label: "a", spent_today_micro: 0, cap_micro: 0 }] } };
+    const rows = M.agentSpendRows(status, [{ name: "a" }]);
+    assert.strictEqual(rows[0].limitText, "no limit");
+  });
+  it("agentSpendRows appends read-only unlabeled for empty label", () => {
+    const status = { raw: { agents: [
+      { label: "codex", spent_today_micro: 0, cap_micro: 1_000_000 },
+      { label: "", spent_today_micro: 500_000, cap_micro: 0 },
+    ] } };
+    const rows = M.agentSpendRows(status, [{ name: "codex" }]);
+    assert.strictEqual(rows.length, 2);
+    assert.strictEqual(rows[1].name, "unlabeled");
+    assert.strictEqual(rows[1].readOnly, true);
+    assert.strictEqual(rows[1].spentText, "0.50");
+    assert.strictEqual(rows[1].connectable, false);
+  });
+  it("agentCapsBody builds full map in micro", () => {
+    const built = M.agentCapsBody({ other: 1000 }, "codex", 2.5);
+    assert.strictEqual(built.error, "");
+    const o = JSON.parse(built.body);
+    assert.strictEqual(o.agent_caps_micro_usdc.codex, 2_500_000);
+    assert.strictEqual(o.agent_caps_micro_usdc.other, 1000);
+  });
+  it("agentCapsBody rejects bad label and negative", () => {
+    assert.notStrictEqual(M.agentCapsBody({}, "Bad", 1).error, "");
+    assert.notStrictEqual(M.agentCapsBody({}, "codex", -1).error, "");
+  });
+  it("errorLabel names agent_cap_exceeded", () => {
+    assert.match(M.errorLabel("agent_cap_exceeded"), /agent/i);
   });
 });

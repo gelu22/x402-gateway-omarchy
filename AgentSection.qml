@@ -20,6 +20,8 @@ Item {
     property bool busy: false
     property string resultText: ""
     property var agents: []
+    // /status snapshot from Panel (parseStatus result) for spend/limit rows.
+    property var statusSnapshot: null
 
     // Which script op is in flight ("apply" | "remove") — routes the failure
     // message and the busy label, since both ops share one Process.
@@ -27,9 +29,12 @@ Item {
     property string lastOp: ""
     property string lastAgent: ""
     property string busyLabel: "⏳ …"
+    property string editingLabel: ""
+    property string editError: ""
 
     // Failures surface in the panel-wide error sink (009.2), not inline.
     signal failed(string message)
+    signal saveAgentCap(string label, real usd)
 
     implicitWidth: parent ? parent.width : 0
     implicitHeight: column.implicitHeight
@@ -148,60 +153,124 @@ Item {
         }
 
         Repeater {
-            model: root.agents
+            model: Model.agentSpendRows(root.statusSnapshot, root.agents)
 
-            delegate: RowLayout {
-                id: agentRow
+            delegate: Column {
+                id: agentCol
                 required property var modelData
-                readonly property bool integrated: agentRow.modelData.integrated === true
-
                 width: parent.width
-                spacing: Style.space(8)
+                spacing: Style.space(2)
 
-                Text {
-                    text: agentRow.modelData.integrated ? "✓" : "·"
-                    color: agentRow.modelData.integrated ? Model.Palette.ok : Color.foreground
-                    font.pixelSize: Style.font.bodySmall
-                    Layout.preferredWidth: 14
-                }
+                RowLayout {
+                    id: agentRow
+                    width: parent.width
+                    spacing: Style.space(8)
 
-                Text {
-                    text: agentRow.modelData.name
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    font.pixelSize: Style.font.bodySmall
-                    Layout.fillWidth: true
-                    elide: Text.ElideMiddle
-                }
+                    Text {
+                        text: agentCol.modelData.integrated ? "✓" : "·"
+                        color: agentCol.modelData.integrated ? Model.Palette.ok : Color.foreground
+                        font.pixelSize: Style.font.bodySmall
+                        Layout.preferredWidth: 14
+                    }
 
-                Button {
-                    visible: agentRow.modelData.connectable !== false && !agentRow.modelData.integrated
-                    enabled: !root.busy
-                    text: root.busy ? root.busyLabel : "Integrate"
-                    fontSize: Style.font.caption
-                    horizontalPadding: Style.space(4)
-                    verticalPadding: Style.space(2)
-                    onClicked: root.integrate(agentRow.modelData.name)
-                }
+                    Text {
+                        text: agentCol.modelData.name
+                        textFormat: Text.PlainText
+                        color: Color.foreground
+                        font.pixelSize: Style.font.bodySmall
+                        Layout.fillWidth: true
+                        elide: Text.ElideMiddle
+                    }
 
-                Text {
-                    visible: agentRow.modelData.connectable === false && !agentRow.modelData.integrated
-                    text: "Installed — no auto-connect"
-                    color: Color.foreground
-                    font.pixelSize: Style.font.caption
-                    Layout.alignment: Qt.AlignVCenter
-                }
+                    Text {
+                        visible: root.editingLabel !== agentCol.modelData.name
+                        text: agentCol.modelData.spentText + " / " + agentCol.modelData.limitText
+                        textFormat: Text.PlainText
+                        color: Color.foreground
+                        opacity: 0.75
+                        font.pixelSize: Style.font.caption
+                        Layout.alignment: Qt.AlignVCenter
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !agentCol.modelData.readOnly
+                            cursorShape: agentCol.modelData.readOnly
+                                         ? Qt.ArrowCursor : Qt.PointingHandCursor
+                            onClicked: {
+                                root.editError = ""
+                                root.editingLabel = agentCol.modelData.name
+                                capField.text = agentCol.modelData.capMicro > 0
+                                    ? Model.formatUsdExact(agentCol.modelData.capMicro / 1000000)
+                                    : "0"
+                            }
+                        }
+                    }
 
-                Button {
-                    visible: agentRow.modelData.integrated === true
-                    enabled: !root.busy
-                    text: root.busy ? root.busyLabel : "Remove"
-                    fontSize: Style.font.caption
-                    horizontalPadding: Style.space(4)
-                    verticalPadding: Style.space(2)
-                    onClicked: root.remove(agentRow.modelData.name)
+                    TextField {
+                        id: capField
+                        visible: root.editingLabel === agentCol.modelData.name
+                                   && !agentCol.modelData.readOnly
+                        Layout.preferredWidth: 72
+                        font.pixelSize: Style.font.caption
+                        onAccepted: function() {
+                            var n = Number(String(text).trim().replace(",", "."))
+                            if (!isFinite(n) || n < 0) {
+                                root.editError = "Enter an amount ≥ 0"
+                                return
+                            }
+                            root.editingLabel = ""
+                            root.editError = ""
+                            root.saveAgentCap(agentCol.modelData.name, n)
+                        }
+                        Keys.onEscapePressed: function(event) {
+                            root.editingLabel = ""
+                            root.editError = ""
+                            event.accepted = true
+                        }
+                    }
+
+                    Button {
+                        visible: !agentCol.modelData.readOnly
+                                 && agentCol.modelData.connectable !== false
+                                 && !agentCol.modelData.integrated
+                        enabled: !root.busy
+                        text: root.busy ? root.busyLabel : "Integrate"
+                        fontSize: Style.font.caption
+                        horizontalPadding: Style.space(4)
+                        verticalPadding: Style.space(2)
+                        onClicked: root.integrate(agentCol.modelData.name)
+                    }
+
+                    Text {
+                        visible: !agentCol.modelData.readOnly
+                                 && agentCol.modelData.connectable === false
+                                 && !agentCol.modelData.integrated
+                        text: "Installed — no auto-connect"
+                        color: Color.foreground
+                        font.pixelSize: Style.font.caption
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    Button {
+                        visible: !agentCol.modelData.readOnly
+                                 && agentCol.modelData.integrated === true
+                        enabled: !root.busy
+                        text: root.busy ? root.busyLabel : "Remove"
+                        fontSize: Style.font.caption
+                        horizontalPadding: Style.space(4)
+                        verticalPadding: Style.space(2)
+                        onClicked: root.remove(agentCol.modelData.name)
+                    }
                 }
             }
+        }
+
+        Text {
+            width: parent.width
+            visible: root.editError !== ""
+            text: root.editError
+            color: Model.Palette.error
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
         }
 
         Text {

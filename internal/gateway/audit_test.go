@@ -128,7 +128,7 @@ func TestLogPaymentNilLoggerSilent(t *testing.T) {
 }
 
 func TestPolicyOutcomeAllowlist(t *testing.T) {
-	for _, code := range []string{"invalid_amount", "budget_exceeded", "network_denied", "unknown_seller", "domain_cap_exceeded", "mfa_required"} {
+	for _, code := range []string{"invalid_amount", "budget_exceeded", "network_denied", "unknown_seller", "domain_cap_exceeded", "agent_cap_exceeded", "mfa_required"} {
 		if got := policyOutcome(code); got != "failed:"+code {
 			t.Fatalf("want passthrough for %q, got %q", code, got)
 		}

@@ -251,7 +251,7 @@ func TestSubCapIsPerHostnameNotRegistrableDomain(t *testing.T) {
 	a := budget.NewAuthority(t.TempDir(), nil)
 	subcap := int64(50_000)
 
-	tok, err := a.Authorize(45_000, 1<<62, subcap, "a.example.com")
+	tok, err := a.Authorize(budget.Hold{AmountMicro: 45_000, Domain: "a.example.com"}, budget.Caps{DailyMicro: 1 << 62, DomainMicro: subcap})
 	if err != nil {
 		t.Fatalf("a.example.com: %v", err)
 	}
@@ -274,10 +274,10 @@ func TestSubCapIsPerHostnameNotRegistrableDomain(t *testing.T) {
 		t.Fatalf("b.example.com spend = %d, want 0 (per-hostname cap)", spentB)
 	}
 	// 10k more on the first host would cross 50k; the sibling has room.
-	if _, err := a.Authorize(10_000, 1<<62, subcap, "a.example.com"); err != budget.ErrSubCap {
+	if _, err := a.Authorize(budget.Hold{AmountMicro: 10_000, Domain: "a.example.com"}, budget.Caps{DailyMicro: 1 << 62, DomainMicro: subcap}); err != budget.ErrSubCap {
 		t.Fatalf("a.example.com must be capped at %d: got %v", subcap, err)
 	}
-	if _, err := a.Authorize(45_000, 1<<62, subcap, "b.example.com"); err != nil {
+	if _, err := a.Authorize(budget.Hold{AmountMicro: 45_000, Domain: "b.example.com"}, budget.Caps{DailyMicro: 1 << 62, DomainMicro: subcap}); err != nil {
 		t.Fatalf("b.example.com keeps its own cap: %v", err)
 	}
 	// The port is not part of the key either (Hostname strips it).

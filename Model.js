@@ -684,8 +684,22 @@ function blockedText(lfe) {
             return "Already paid — the same payment was not sent twice."
         case "insufficient_funds":
             return "Not enough USDC in the wallet — top it up and ask the client to retry."
+        case "agent_cap_exceeded":
+            return "" // overridable — OverrideConfirmDialog / blocked list
         default:
             return ""
+    }
+}
+
+// errorLabel is a short English label for a daemon error code (panel copy).
+function errorLabel(code) {
+    switch (String(code || "")) {
+        case "agent_cap_exceeded":
+            return "This agent's daily limit is reached — approve to pay anyway."
+        case "budget_exceeded":
+            return "Daily budget reached — approve to pay anyway."
+        default:
+            return String(code || "")
     }
 }
 
@@ -916,6 +930,98 @@ function historyRows(entries, nowMs) {
         })
     }
     return out
+}
+
+// agentLabelValid mirrors daemon agentlabel.Valid (54.1).
+function agentLabelValid(label) {
+    if (typeof label !== "string" || label.length === 0 || label.length > 32) return false
+    return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(label)
+}
+
+// agentLimitCaption: CapMicro 0 + any positive cap elsewhere → override "asks";
+// CapMicro 0 with no positive caps → feature off "no limit".
+function agentLimitCaption(capMicro, statusAgents) {
+    if (typeof capMicro === "number" && isFinite(capMicro) && capMicro > 0)
+        return formatUsdExact(capMicro / MICRO_USDC)
+    var anyPositive = false
+    var list = Array.isArray(statusAgents) ? statusAgents : []
+    for (var i = 0; i < list.length; i++) {
+        var c = list[i] && list[i].cap_micro
+        if (typeof c === "number" && c > 0) { anyPositive = true; break }
+    }
+    return anyPositive ? "asks every time" : "no limit"
+}
+
+// agentSpendRows joins detect() agents with /status.agents by label===name.
+// Empty-label spend (legacy MCP) appends a read-only "unlabeled" row.
+function agentSpendRows(status, agents) {
+    var raw = status && status.raw ? status.raw : status
+    var spendBy = {}
+    var statusAgents = (raw && Array.isArray(raw.agents)) ? raw.agents : []
+    for (var i = 0; i < statusAgents.length; i++) {
+        var a = statusAgents[i]
+        if (!a || typeof a.label !== "string") continue
+        spendBy[a.label] = a
+    }
+    var list = Array.isArray(agents) ? agents : []
+    var out = []
+    for (var j = 0; j < list.length; j++) {
+        var row = list[j]
+        if (!row || typeof row.name !== "string") continue
+        var hit = spendBy[row.name] || {}
+        var spent = (typeof hit.spent_today_micro === "number" && isFinite(hit.spent_today_micro))
+                  ? hit.spent_today_micro : 0
+        var cap = (typeof hit.cap_micro === "number" && isFinite(hit.cap_micro)) ? hit.cap_micro : 0
+        out.push({
+            name: row.name,
+            spentMicro: spent,
+            capMicro: cap,
+            spentText: formatUsdExact(spent / MICRO_USDC),
+            limitText: agentLimitCaption(cap, statusAgents),
+            integrated: row.integrated === true,
+            connectable: row.connectable !== false,
+            readOnly: false
+        })
+    }
+    if (Object.prototype.hasOwnProperty.call(spendBy, "")) {
+        var blank = spendBy[""]
+        var bSpent = (typeof blank.spent_today_micro === "number" && isFinite(blank.spent_today_micro))
+                   ? blank.spent_today_micro : 0
+        var bCap = (typeof blank.cap_micro === "number" && isFinite(blank.cap_micro)) ? blank.cap_micro : 0
+        out.push({
+            name: "unlabeled",
+            spentMicro: bSpent,
+            capMicro: bCap,
+            spentText: formatUsdExact(bSpent / MICRO_USDC),
+            limitText: agentLimitCaption(bCap, statusAgents),
+            integrated: false,
+            connectable: false,
+            readOnly: true
+        })
+    }
+    return out
+}
+
+// agentCapsBody builds POST /policy body replacing agent_caps_micro_usdc.
+// Returns { body, error }. currentMap is the existing override map (may be null).
+function agentCapsBody(currentMap, label, usd) {
+    if (!agentLabelValid(label))
+        return { body: "", error: "Invalid agent label" }
+    if (typeof usd !== "number" || !isFinite(usd) || usd < 0)
+        return { body: "", error: "Enter an amount ≥ 0" }
+    var micro = usdToMicro(usd)
+    if (!isFinite(micro) || micro < 0)
+        return { body: "", error: "Enter an amount ≥ 0" }
+    var map = {}
+    if (currentMap && typeof currentMap === "object") {
+        for (var k in currentMap) {
+            if (!Object.prototype.hasOwnProperty.call(currentMap, k)) continue
+            var v = currentMap[k]
+            if (typeof v === "number" && isFinite(v) && v >= 0) map[k] = v
+        }
+    }
+    map[label] = micro
+    return { body: JSON.stringify({ agent_caps_micro_usdc: map }), error: "" }
 }
 
 // approveBody is the POST /fetch-approve payload (pay now).
