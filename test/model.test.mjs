@@ -75,6 +75,10 @@ function loadModelJS() {
       budgetRemaining: (typeof budgetRemaining !== "undefined") ? budgetRemaining : undefined,
       buildInfoLabel: (typeof buildInfoLabel !== "undefined") ? buildInfoLabel : undefined,
       pluginVersionLabel: (typeof pluginVersionLabel !== "undefined") ? pluginVersionLabel : undefined,
+      footerVersionLabel: (typeof footerVersionLabel !== "undefined") ? footerVersionLabel : undefined,
+      historyFilePath: (typeof historyFilePath !== "undefined") ? historyFilePath : undefined,
+      historyDocument: (typeof historyDocument !== "undefined") ? historyDocument : undefined,
+      openEditorCommand: (typeof openEditorCommand !== "undefined") ? openEditorCommand : undefined,
       panelDebugEnabled: (typeof panelDebugEnabled !== "undefined") ? panelDebugEnabled : undefined,
       clipboardCommand: (typeof clipboardCommand !== "undefined") ? clipboardCommand : undefined,
       clipboardStdin: (typeof clipboardStdin !== "undefined") ? clipboardStdin : undefined,
@@ -1436,6 +1440,36 @@ describe("pluginVersionLabel (52.16: short SETUP stamp without sha)", () => {
   it("returns empty for missing/blank/malformed input", () => {
     for (const bad of [undefined, null, "", "   ", "not json", "{}", '{"git_sha":"abc"}'])
       assert.strictEqual(Model.pluginVersionLabel(bad), "", String(bad));
+  });
+});
+
+describe("footerVersionLabel / history file helpers", () => {
+  const M = loadModelJS();
+  it("footerVersionLabel prefers live daemon version", () => {
+    assert.strictEqual(M.footerVersionLabel("plugin v0.1.20", "0.1.26"), "gateway v0.1.26");
+    assert.strictEqual(M.footerVersionLabel("plugin v0.1.20", ""), "plugin v0.1.20");
+    assert.strictEqual(M.footerVersionLabel("", "dev"), "gateway vdev");
+  });
+  it("historyFilePath is under state dir", () => {
+    assert.strictEqual(M.historyFilePath("/home/u"), "/home/u/.local/state/x402-gateway/history.txt");
+    assert.strictEqual(M.historyFilePath(""), "");
+    assert.strictEqual(M.historyFilePath("/home/../etc"), "");
+  });
+  it("historyDocument formats readable lines", () => {
+    const doc = M.historyDocument([{
+      agent: "codex", domain: "seller.example", amount_micro: 2000,
+      outcome: "paid", time: "2026-10-06T12:00:00Z", override: false,
+    }], Date.parse("2026-10-06T12:05:00Z"));
+    assert.match(doc, /codex/);
+    assert.match(doc, /seller\.example/);
+    assert.match(doc, /Paid/);
+  });
+  it("openEditorCommand rejects traversal", () => {
+    assert.deepStrictEqual(
+      M.openEditorCommand("/home/u/.local/state/x402-gateway/history.txt"),
+      ["omarchy", "launch", "config", "editor", "/home/u/.local/state/x402-gateway/history.txt"]);
+    assert.strictEqual(M.openEditorCommand("../x"), null);
+    assert.strictEqual(M.openEditorCommand(""), null);
   });
 });
 

@@ -28,7 +28,10 @@ BarWidget {
     }
 
     function refresh() {
+        // Coalesce: never kill an in-flight /status (stale onExited → Offline).
         statusProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.STATUS, Model.Method.GET, "")
+        if (statusProc.running)
+            return
         statusProc.running = true
     }
 
@@ -81,8 +84,12 @@ BarWidget {
 
     Process {
         id: statusProc
+        // Deliver once per flight (stdout wins over a late non-zero exit).
+        property bool delivered: false
         stdout: StdioCollector {
             onStreamFinished: {
+                if (statusProc.delivered) return
+                statusProc.delivered = true
                 root.firstPollDone = true
                 var st = Model.parseStatus(this.text)
                 root.gatewayState = st.state
@@ -115,7 +122,17 @@ BarWidget {
             }
         }
         stderr: StdioCollector { }
-        onExited: (code, _) => { root.firstPollDone = true; if (code !== 0) root.gatewayState = Model.State.OFFLINE }
+        onStarted: statusProc.delivered = false
+        onExited: (code, _) => {
+            if (statusProc.delivered) return
+            root.firstPollDone = true
+            if (code !== 0) {
+                statusProc.delivered = true
+                root.gatewayState = Model.State.OFFLINE
+                root.balanceText = Model.formatUsdExact(0)
+                root.tooltipLine2 = ""
+            }
+        }
     }
 
     // Reinjection when the shell injects bar/settings AFTER creation —

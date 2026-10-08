@@ -71,7 +71,6 @@ Panel {
 
     // SETUP disclosure: session-only (reset on each open/close).
     property bool advancedExpanded: false
-    property bool historyExpanded: false
     // Version stamp is debug-only (43.4); fail-closed without GATEWAY_PANEL_DEBUG=1.
     readonly property bool panelDebug: Model.panelDebugEnabled(Quickshell.env("GATEWAY_PANEL_DEBUG"))
 
@@ -124,17 +123,50 @@ Panel {
 
     function open() {
         root.advancedExpanded = false
-        root.historyExpanded = false
+        // Defensive: injectPanel can lag the first toggle after a shell restart.
+        if (root.socketPath === "")
+            root.socketPath = Model.defaultSocketPath(Quickshell.env("HOME") || "")
         root.controller.show()
         root.refresh()
+        // Survive Service.qml respawn / brief socket gap after shell restart.
+        // Coalesced callStatus: these never kill an in-flight curl (that was the
+        // sticky-offline bug — killed process onExited called the new onDone).
+        openRetry1.restart()
+        openRetry2.restart()
     }
     function close() {
         root.advancedExpanded = false
-        root.historyExpanded = false
         root.pendingOverride = null
         root.priceChangeFrom = null
+        openRetry1.stop()
+        openRetry2.stop()
         mfa.closeMfaDialog()
         root.controller.hide()
+    }
+
+    // Two short retries after open(); only fire while still offline + opened.
+    Timer {
+        id: openRetry1
+        interval: 400
+        repeat: false
+        onTriggered: if (root.opened && !root.online) root.refresh()
+    }
+    Timer {
+        id: openRetry2
+        interval: 1200
+        repeat: false
+        onTriggered: if (root.opened && !root.online) root.refresh()
+    }
+
+    // Single offline paint path — clear stale balance so "39 USDC + Offline"
+    // cannot persist after a failed poll.
+    function markOffline() {
+        root.online = false
+        root.daemonVersion = ""
+        root.balanceNum = 0
+        root.heroLabel = "Offline"
+        root.heroColor = Model.Palette.offline
+        root.alertText = ""
     }
     function switchPanel(direction) {
         if (root.bar && typeof root.bar.switchPanelFrom === "function")
@@ -153,11 +185,8 @@ Panel {
                 // shape on curl failure. It is VALID json, so handle it before the
                 // normal path (else we'd show "Sign-in required" + step 3).
                 if (Model.errorCode(o) === "daemon_offline") {
-                    root.online = false
-                    root.daemonVersion = ""
-                    root.heroLabel = "Offline"
-                    root.heroColor = Model.Palette.offline
-                    root.alertText = ""
+                    console.warn(Model.LOG_TAG + " status offline sock=" + root.socketPath)
+                    root.markOffline()
                     return
                 }
                 root.online = true
@@ -173,8 +202,9 @@ Panel {
                 root.daemonVersion = o.version || ""
                 // Payments the daemon is holding for the owner (49.2/49.4).
                 root.blockedRows = Model.parseBlocked(o)
-                if (typeof historySection !== "undefined" && historySection)
-                    historySection.refresh()
+                // History opens on demand in the editor (HistorySection.openHistory);
+                // do not call a missing refresh() here — that TypeError was caught
+                // below and painted sticky Offline despite a live /status.
                 // Single transition point: resolveStep() decides from daemon
                 // truth. User-initiated steps (submitEmail/submitOtp) set their
                 // own; never inline step logic here.
@@ -240,11 +270,8 @@ Panel {
                         root.pendingOverride = po
                 }
             } catch (e) {
-                root.online = false
-                root.daemonVersion = ""
-                root.heroLabel = "Offline"
-                root.heroColor = Model.Palette.offline
-                root.alertText = ""
+                console.warn(Model.LOG_TAG + " status apply failed: " + e)
+                root.markOffline()
             }
         })
     }
@@ -264,9 +291,15 @@ Panel {
     // lost results or a wedged `busy` ("dead panel"). The 15 s poll made that
     // collision routine, not exotic, so /status no longer shares callProc with
     // the user-triggered mutations (policy save, override pay, MFA).
+    //
+    // Coalesce: never restart statusProc mid-flight. Killing curl made onExited
+    // fire non-zero against the *new* onDone → sticky Offline after a good /status
+    // (bar kept working because its next 5 s poll recovered). Latest onDone wins.
     function callStatus(onDone) {
-        statusProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.STATUS, Model.Method.GET, "")
         statusProc.onDone = onDone
+        statusProc.command = Model.buildCommand(root.socketPath, Model.Endpoint.STATUS, Model.Method.GET, "")
+        if (statusProc.running)
+            return
         statusProc.running = true
     }
 
@@ -439,9 +472,25 @@ Panel {
     Process {
         id: statusProc
         property var onDone: null
-        stdout: StdioCollector { onStreamFinished: if (statusProc.onDone) statusProc.onDone(this.text) }
+        // Deliver at most once per run: stdout success must not be followed by
+        // a non-zero onExited calling onDone(daemon_offline) on the same flight.
+        property bool delivered: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (statusProc.delivered || !statusProc.onDone) return
+                statusProc.delivered = true
+                statusProc.onDone(this.text)
+            }
+        }
         stderr: StdioCollector { }
-        onExited: (code) => { if (code !== 0 && statusProc.onDone) statusProc.onDone(Model.daemonOffline()) }
+        onStarted: statusProc.delivered = false
+        onExited: (code) => {
+            if (statusProc.delivered || !statusProc.onDone) return
+            if (code !== 0) {
+                statusProc.delivered = true
+                statusProc.onDone(Model.daemonOffline())
+            }
+        }
     }
 
     Process {
@@ -477,11 +526,11 @@ Panel {
 
     // Release stamp (41.3): build-info.json shipped next to this panel by the
     // bundle. Missing or malformed → "" → no stamp row (an install from before
-    // 41.3 must not error). Read-only; formatting lives in Model.buildInfoLabel /
-    // pluginVersionLabel (52.16 short SETUP line).
+    // 41.3 must not error). watchChanges: install overwrite refreshes the stamp.
     FileView {
         id: buildInfoFile
         path: Qt.resolvedUrl("build-info.json")
+        watchChanges: true
         printErrors: false
         onLoaded: {
             var raw = text()
@@ -656,7 +705,6 @@ Panel {
                     onCopyAddress: function() { root.copyAddress() }
                     onStartMfaEnroll: function() { mfa.startMfaEnroll() }
                     onOpenMfaReset: function() { mfa.openMfaReset() }
-                    onRequestLogout: function() { root.confirmLogoutDialog = true }
                 }
 
                 // Static CAPS label — list lives in AgentSection.
@@ -692,12 +740,8 @@ Panel {
                     id: historySection
                     width: parent.width
                     socketPath: root.socketPath
-                    expanded: root.historyExpanded
-                    onToggle: {
-                        root.historyExpanded = !root.historyExpanded
-                        if (root.historyExpanded)
-                            historySection.reload()
-                    }
+                    homeDir: Quickshell.env("HOME")
+                    onFailed: function(msg) { root.fail(msg) }
                 }
 
                 OverrideSection {
@@ -708,15 +752,27 @@ Panel {
                     onOpenConfig: function() { root.openConfigEditor() }
                 }
 
-                // Installed plugin version (52.16): compare with catalog/Releases;
-                // update remains attested install.sh (not omarchy plugin update).
-                Text {
+                // Footer: live daemon version (falls back to build-info) + Logout.
+                RowLayout {
                     width: parent.width
-                    visible: root.pluginVersion !== ""
-                    text: root.pluginVersion
-                    color: Color.foreground
-                    opacity: 0.55
-                    font.pixelSize: Style.font.caption
+                    spacing: Style.space(8)
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: Model.footerVersionLabel(root.pluginVersion, root.daemonVersion) !== ""
+                        text: Model.footerVersionLabel(root.pluginVersion, root.daemonVersion)
+                        color: Color.foreground
+                        opacity: 0.55
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                    }
+
+                    Button {
+                        Layout.alignment: Qt.AlignRight
+                        text: "Logout"
+                        enabled: !root.busy
+                        onClicked: root.confirmLogoutDialog = true
+                    }
                 }
             }
 

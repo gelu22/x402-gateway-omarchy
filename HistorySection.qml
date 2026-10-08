@@ -1,5 +1,7 @@
-// HistorySection.qml — recent payment audit rows (54.8). Formatting in Model.js.
+// HistorySection.qml — payment history opens as a text file in the system
+// editor (narrow SETUP column cannot fit readable columns). Formatting in Model.js.
 pragma ComponentBehavior: Bound
+import Quickshell
 import Quickshell.Io
 import QtQuick
 import qs.Commons
@@ -10,132 +12,117 @@ CollapsibleSection {
     id: root
 
     property string socketPath: ""
-    property var rows: []
-    property bool truncated: false
+    property string homeDir: ""
     property string errorText: ""
-    property bool loaded: false
+    property bool busy: false
+    property string pendingDoc: ""
 
     title: "HISTORY"
     iconText: Model.ICON_HISTORY
+    trailingText: root.busy ? "…" : (root.errorText !== "" ? root.errorText : "Opens in editor")
+    trailingColor: root.errorText !== "" ? Model.Palette.error : Color.foreground
+    showChevron: true
+    expanded: false
 
     width: parent ? parent.width : 0
 
-    function reload() {
-        if (root.socketPath === "") {
+    signal failed(string message)
+
+    function openHistory() {
+        if (root.busy) return
+        if (root.socketPath === "" || root.homeDir === "") {
             root.errorText = "History unavailable"
-            root.rows = []
+            root.failed(root.errorText)
             return
         }
+        var path = Model.historyFilePath(root.homeDir)
+        if (path === "") {
+            root.errorText = "History unavailable"
+            root.failed(root.errorText)
+            return
+        }
+        root.busy = true
+        root.errorText = ""
+        root.pendingDoc = ""
+        histProc.historyPath = path
         histProc.command = Model.buildCommand(
-            root.socketPath, Model.Endpoint.HISTORY + "?limit=20", Model.Method.GET, "")
+            root.socketPath, Model.Endpoint.HISTORY + "?limit=50", Model.Method.GET, "")
         histProc.running = true
     }
 
-    function refresh() {
-        if (root.expanded)
-            root.reload()
+    onToggle: {
+        root.expanded = false
+        root.openHistory()
     }
 
     Process {
         id: histProc
+        property string historyPath: ""
         stdout: StdioCollector {}
         onExited: (code) => {
-            root.loaded = true
             if (code !== 0) {
+                root.busy = false
                 root.errorText = "History unavailable"
-                root.rows = []
-                root.truncated = false
+                root.failed(root.errorText)
                 return
             }
             var parsed = Model.parseHistory(stdout.text)
             if (!parsed.ok) {
+                root.busy = false
                 root.errorText = "History unavailable"
-                root.rows = []
-                root.truncated = false
+                root.failed(root.errorText)
                 return
             }
-            root.errorText = ""
-            root.truncated = parsed.truncated
-            root.rows = Model.historyRows(parsed.entries, Date.now())
+            root.pendingDoc = Model.historyDocument(parsed.entries, Date.now())
+            var p = histProc.historyPath
+            var i = p.lastIndexOf("/")
+            var dir = i > 0 ? p.slice(0, i) : ""
+            mkdirProc.command = ["mkdir", "-p", dir]
+            mkdirProc.running = true
         }
     }
 
-    Column {
-        width: parent.width
-        spacing: Style.space(4)
+    Process {
+        id: mkdirProc
+        onExited: (code) => {
+            if (code !== 0 || root.pendingDoc === "") {
+                root.busy = false
+                root.errorText = "Could not write history file"
+                root.failed(root.errorText)
+                return
+            }
+            writeProc.pendingBody = root.pendingDoc
+            writeProc.stdinEnabled = true
+            writeProc.command = ["tee", histProc.historyPath]
+            writeProc.running = true
+        }
+    }
 
-        Text {
-            width: parent.width
-            visible: root.errorText !== ""
-            text: root.errorText
-            textFormat: Text.PlainText
-            color: Color.foreground
-            opacity: 0.7
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-        }
-        Text {
-            width: parent.width
-            visible: root.errorText === "" && root.loaded && root.rows.length === 0
-            text: "No payments yet"
-            color: Color.foreground
-            opacity: 0.55
-            font.pixelSize: Style.font.caption
-        }
-        Repeater {
-            model: root.rows
-            delegate: Row {
-                id: histRow
-                required property var modelData
-                width: root.width
-                spacing: Style.space(6)
-                Text {
-                    text: histRow.modelData.agent
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    font.pixelSize: Style.font.caption
-                    elide: Text.ElideRight
-                    width: Math.min(72, parent.width * 0.18)
-                }
-                Text {
-                    text: histRow.modelData.domain
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    font.pixelSize: Style.font.caption
-                    elide: Text.ElideMiddle
-                    width: Math.min(120, parent.width * 0.28)
-                }
-                Text {
-                    text: "$" + histRow.modelData.amount
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    font.pixelSize: Style.font.caption
-                }
-                Text {
-                    text: histRow.modelData.outcome + (histRow.modelData.override ? " ★" : "")
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    opacity: 0.8
-                    font.pixelSize: Style.font.caption
-                    elide: Text.ElideRight
-                    width: Math.min(100, parent.width * 0.25)
-                }
-                Text {
-                    text: histRow.modelData.when
-                    textFormat: Text.PlainText
-                    color: Color.foreground
-                    opacity: 0.55
-                    font.pixelSize: Style.font.caption
-                }
+    Process {
+        id: writeProc
+        property string pendingBody: ""
+        stdinEnabled: false
+        onStarted: {
+            if (pendingBody !== "") {
+                write(pendingBody)
+                pendingBody = ""
             }
         }
-        Text {
-            width: parent.width
-            visible: root.truncated && root.errorText === ""
-            text: "showing latest"
-            color: Color.foreground
-            opacity: 0.45
-            font.pixelSize: Style.font.caption
+        onExited: (code) => {
+            root.busy = false
+            if (code !== 0) {
+                root.errorText = "Could not write history file"
+                root.failed(root.errorText)
+                return
+            }
+            var cmd = Model.openEditorCommand(histProc.historyPath)
+            if (cmd === null) {
+                root.errorText = "Could not open history file"
+                root.failed(root.errorText)
+                return
+            }
+            root.errorText = ""
+            Quickshell.execDetached(cmd)
         }
     }
 }

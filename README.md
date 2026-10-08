@@ -1,8 +1,34 @@
-# x402 Gateway — pays for paid web pages on behalf of your AI agents
+# x402 Gateway
 
-A desktop daemon that pays for x402 content (USDC on Base) on behalf of your
-AI agents — within the daily budget you set. An Omarchy plugin adds a status
-widget and a browser-free onboarding wizard.
+Pays x402 paywalls in USDC for your AI agents, within a daily budget you set —
+bar widget plus a local daemon for Omarchy.
+
+![x402 Gateway panel](preview.png)
+
+## Install
+
+Download the installer from a **pinned release**, verify its signature, then
+run it — never pipe a remote script straight into a shell:
+
+```bash
+VERSION=v0.1.27   # any released tag (see the Releases page)
+TMP="$(mktemp -d)"
+curl -fsSL -o "$TMP/install.sh" \
+  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
+&& gh attestation verify "$TMP/install.sh" --repo gelu22/x402-gateway-omarchy \
+  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
+  --source-ref "refs/tags/$VERSION" \
+&& bash "$TMP/install.sh" "$VERSION"
+```
+
+**Update** = the same chain with a newer tag (see [CHANGELOG.md](CHANGELOG.md)).
+**Uninstall** = download+verify `uninstall.sh` the same way, then
+`bash "$TMP/uninstall.sh"` (or `--yes` for a full wipe). Non-destructive:
+`install.sh remove` keeps state/config. Wallets stay in the CDP project.
+
+The installer checks the daemon binary and plugin bundle (sha256 **and**
+sigstore attestation via `gh`). Offline / at your own risk:
+`GATEWAY_ALLOW_UNVERIFIED=1`. Explicit tag required — no floating `latest`.
 
 ```
 AI agent ──► MCP / unix socket ──► Go daemon ──► x402 seller
@@ -15,109 +41,6 @@ AI agent ──► MCP / unix socket ──► Go daemon ──► x402 seller
 > supported and follows the same code path — switch to it in the plugin config
 > and fund the wallet with real USDC (see [Funding your wallet](#funding-your-wallet)).
 > Real funds are real money: you are responsible for what your agents spend.
-
-## Install
-
-The gateway is a bar widget plus a local daemon. Download the installer from a
-**pinned release**, verify its signature, then run it — never pipe a remote
-script straight into a shell:
-
-```bash
-VERSION=v0.1.26   # any released tag (see the Releases page)
-TMP="$(mktemp -d)"
-curl -fsSL -o "$TMP/install.sh" \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
-&& gh attestation verify "$TMP/install.sh" --repo gelu22/x402-gateway-omarchy \
-  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION" \
-&& bash "$TMP/install.sh" "$VERSION"
-```
-
-Want to read the code first? Clone the **same pinned tag** (for inspection only)
-and read it — then run the verified download above. Do **not** run the checkout's
-copy: it is not attestation-checked, and a moved tag would silently run a
-different installer.
-
-```bash
-git clone --branch v0.1.26 --depth 1 https://github.com/gelu22/x402-gateway-omarchy.git
-less x402-gateway-omarchy/scripts/install.sh
-```
-
-The installer then checks **the daemon binary and the plugin bundle** (sha256
-**and** a valid sigstore build attestation — the GitHub CLI `gh` must be
-installed; without a valid signature it refuses to install). To skip the
-signature check — offline, or at your own risk — prefix the run with
-`GATEWAY_ALLOW_UNVERIFIED=1`. It installs:
-- binary → `~/.local/bin/gateway`
-- QML plugin → `~/.config/omarchy/plugins/gelu22.gateway` (Omarchy only;
-  skipped with instructions elsewhere)
-- helper script (agent setup) → `~/.local/share/x402-gateway/`
-- plugin config → `~/.config/omarchy/x402-gateway/config.json` (seeded only
-  when absent; your edits are kept)
-- state dir `~/.local/state/x402-gateway` (0700)
-
-Install always needs an explicit tag (`install.sh vX.Y.Z`) — there is no
-floating `latest` / bare `install` alias. Other modes: `install.sh verify`
-(check installation), `install.sh remove` (removes binary, plugin and scripts;
-keeps state), `install.sh purge --yes` (full wipe).
-
-### Update
-
-There is no auto-update: the installer **copies** the binary and the plugin
-once. To update, run the same pinned, verified download for the new tag:
-
-```bash
-VERSION=v0.1.26
-TMP="$(mktemp -d)"
-curl -fsSL -o "$TMP/install.sh" \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
-&& gh attestation verify "$TMP/install.sh" --repo gelu22/x402-gateway-omarchy \
-  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION" \
-&& bash "$TMP/install.sh" "$VERSION"
-```
-
-Check what changed in [CHANGELOG.md](CHANGELOG.md).
-
-### Uninstall
-
-Interactive deinstaller — one self-contained chain (download → verify → run):
-
-```bash
-VERSION=v0.1.26
-TMP="$(mktemp -d)"
-curl -fsSL -o "$TMP/uninstall.sh" \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
-&& gh attestation verify "$TMP/uninstall.sh" --repo gelu22/x402-gateway-omarchy \
-  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION" \
-&& bash "$TMP/uninstall.sh"
-```
-
-Everything at once, no questions (stops the daemon, removes the binary, the
-plugin, the helper, the agent MCP entries, your state **including the audit
-log**, and the plugin config) — the same self-contained chain, with `--yes`:
-
-```bash
-VERSION=v0.1.26
-TMP="$(mktemp -d)"
-curl -fsSL -o "$TMP/uninstall.sh" \
-  "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/uninstall.sh" \
-&& gh attestation verify "$TMP/uninstall.sh" --repo gelu22/x402-gateway-omarchy \
-  --signer-workflow gelu22/x402-gateway-omarchy/.github/workflows/release.yml \
-  --source-ref "refs/tags/$VERSION" \
-&& bash "$TMP/uninstall.sh" --yes
-```
-
-Every command above downloads and verifies **its own** copy into a fresh
-`mktemp -d`; no step reuses a script from an earlier one.
-
-`install.sh remove` is the non-destructive variant: it removes the binary, the
-QML plugin and the helper script and **keeps your state and config** (session,
-budgets, spend, audit log).
-
-Neither mode touches your wallet: it stays in the CDP project, so remove it in
-the CDP portal for a full cleanup.
 
 ## Development
 

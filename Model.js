@@ -251,6 +251,47 @@ function pluginVersionLabel(raw) {
     return "plugin v" + v
 }
 
+// footerVersionLabel prefers the live daemon /status version (updates with the
+// running binary); falls back to the stamped plugin build-info line.
+function footerVersionLabel(pluginVersion, daemonVersion) {
+    var d = String(daemonVersion || "").trim()
+    if (d !== "") return "gateway v" + d
+    return String(pluginVersion || "")
+}
+
+// historyFilePath is where the panel writes readable payment history for the
+// system editor (not inline in the narrow SETUP column).
+function historyFilePath(home) {
+    if (typeof home !== "string" || home === "" || home.charAt(0) !== "/") return ""
+    if (home.indexOf("\0") >= 0 || home.indexOf("..") >= 0) return ""
+    return home.replace(/\/+$/, "") + "/.local/state/x402-gateway/history.txt"
+}
+
+// historyDocument formats /history entries as a plain-text file body.
+function historyDocument(entries, nowMs) {
+    var rows = historyRows(entries, nowMs)
+    if (rows.length === 0) return "No payments yet.\n"
+    var lines = ["Payment history", ""]
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i]
+        var star = r.override ? " *" : ""
+        lines.push(
+            r.when + "  " + r.agent + "  " + r.domain + "  $" + r.amount
+            + "  " + r.outcome + star
+        )
+    }
+    return lines.join("\n") + "\n"
+}
+
+// openEditorCommand opens a local path in the Omarchy config editor (same path
+// as "Edit in config"). Absolute path only; rejects .. and empty.
+function openEditorCommand(path) {
+    if (typeof path !== "string" || path === "") return null
+    if (path.charAt(0) !== "/") return null
+    if (path.indexOf("..") >= 0 || path.indexOf("\0") >= 0) return null
+    return ["omarchy", "launch", "config", "editor", path]
+}
+
 // panelDebugEnabled gates the panel version stamp (43.4). Fail-closed: only
 // the exact string "1" enables it; missing/empty/other values stay hidden.
 function panelDebugEnabled(envVal) {

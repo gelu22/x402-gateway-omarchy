@@ -17,6 +17,11 @@ opencode.json
 
 # Generowane
 _docs/MODULE_MAP.md
+_docs/DEPS-GO.md
+_docs/DEPS-QML.md
+_docs/DEPS-BACKEND.md
+_docs/STATUS.md
+.obsidian/
 backend/.dev.vars
 backend/.wrangler/
 dist/

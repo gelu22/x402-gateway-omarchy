@@ -1,6 +1,5 @@
 // WalletSection.qml — ACCOUNT block inside SETUP (52.13): flat CAPS header,
-// muted status lines, one action row, Logout separate. No CollapsibleSection
-// (SETUP already discloses). Pure composition; socket calls stay in Panel.
+// muted status lines, one action row. Logout lives in the SETUP footer (panel).
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -15,21 +14,18 @@ Column {
     property string mfaMethod: ""
     property bool busy: false
     property bool mfaBusy: false
-    // Copy feedback (39.1): button text flashes while set.
     property bool addressCopied: false
     property int copyFeedbackMs: 2000
 
     signal copyAddress()
     signal startMfaEnroll()
     signal openMfaReset()
-    signal requestLogout()
 
     readonly property color formMuted: Qt.darker(Color.foreground, 1.45)
 
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
-    // ---- Header: icon + CAPS (BudgetsSection language) ----
     Row {
         spacing: Style.space(6)
         Text {
@@ -50,7 +46,6 @@ Column {
         }
     }
 
-    // ---- Facts (not actions) ----
     Text {
         width: parent.width
         text: Model.accountNetworkLine(root.paymentNetwork, root.walletAddress)
@@ -69,7 +64,6 @@ Column {
         wrapMode: Text.WordWrap
     }
 
-    // ---- Actions: one row (no Button.color fill — 52.12 lesson) ----
     Flow {
         width: parent.width
         spacing: Style.space(8)
@@ -99,13 +93,5 @@ Column {
         interval: root.copyFeedbackMs
         running: root.addressCopied
         onTriggered: root.addressCopied = false
-    }
-
-    PanelSeparator {}
-
-    Button {
-        text: "Logout"
-        enabled: !root.busy
-        onClicked: root.requestLogout()
     }
 }

@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.27] — 2026-10-08
+
+### Changed
+
+- **Catalog preview is landscape 1600×900** (panel + desktop context) so marketplace cards no longer crop a tall vertical shot.
+- **Shorter catalog / GitHub About copy** (~120 characters).
+- **README** leads with value + screenshot, then one attested Install block.
+- **Panel UX:** HISTORY opens as a text file in the system editor; live version footer; Logout in SETUP footer; sticky Offline after a failed `historySection.refresh` fixed.
+
 ## [0.1.26] — 2026-10-06
 
 ### Added
