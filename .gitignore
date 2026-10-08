@@ -22,6 +22,8 @@ _docs/DEPS-QML.md
 _docs/DEPS-BACKEND.md
 _docs/STATUS.md
 .obsidian/
+*.base
+*.canvas
 backend/.dev.vars
 backend/.wrangler/
 dist/

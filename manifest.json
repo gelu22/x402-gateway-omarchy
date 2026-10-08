@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "gelu22.gateway",
   "name": "x402 Gateway",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "author": "gelu22",
   "license": "MIT",
   "description": "Pays x402 paywalls in USDC for your AI agents, within a daily budget you set. Bar widget plus a local daemon for Omarchy.",

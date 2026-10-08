@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.28] — 2026-10-08
+
+### Added
+
+- **Cline** joins the agents the panel can detect and connect in one click (MCP config `~/.cline/data/settings/cline_mcp_settings.json`).
+- **Agent detection is data-driven.** `setup-agents.sh` reads an agent registry (TOML) instead of hardcoded cases; add an agent by editing a registry file, no code change. Print the template with `setup-agents.sh --write-template`; a user registry at `~/.config/x402-gateway/agents.toml` overrides or extends the built-ins.
+
+### Fixed
+
+- **Agents installed outside `~/.local/bin` and mise are detected again** through a `$PATH` probe — e.g. a Cursor CLI at `/usr/bin/cursor-agent`.
+- **mise shims are no longer mistaken for not-yet-installed cold stubs.** A shim is a symlink to the `mise` binary, whose contents contain the stub marker string; the marker is now only read from regular files. This is what hid **Cline** from the panel.
+
 ## [0.1.27] — 2026-10-08
 
 ### Changed

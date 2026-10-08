@@ -11,7 +11,7 @@ Download the installer from a **pinned release**, verify its signature, then
 run it — never pipe a remote script straight into a shell:
 
 ```bash
-VERSION=v0.1.27   # any released tag (see the Releases page)
+VERSION=v0.1.28   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -199,10 +199,12 @@ they stay in the daemon's `~/.local/state/x402-gateway/policy.json`.
 
 ## Agent setup
 
-**MCP** (Claude Code / opencode / Cursor / Codex / Gemini) — auto-detect and
-one-click **Integrate** per agent in the panel ("AI agents" section), or
-manually. Omarchy launchers without a known config file show up as installed
-and do not get an Integrate button.
+**MCP** (Claude Code / opencode / Cursor / Codex / Gemini / Cline) — auto-detect
+and one-click **Integrate** per agent in the panel ("AI agents" section), or
+manually. Agents installed outside `~/.local/bin` (e.g. `/usr/bin`) are detected
+too. Detection is data-driven: add an agent with `setup-agents.sh --write-template`.
+Omarchy launchers without a known config file show up as installed and do not get
+an Integrate button.
 
 ```json
 {"mcp": {"x402-gateway": {
