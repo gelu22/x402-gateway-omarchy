@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.29] — 2026-10-08
+
+### Changed
+
+- **Refreshed panel preview** (`preview.png`, 1600×900): the screenshot now shows the live version footer and the AI AGENTS list including **Cline**. The marketplace catalog derives its card/detail images from this file.
+
 ## [0.1.28] — 2026-10-08
 
 ### Added
