@@ -1,12 +1,15 @@
-// WalletSection.qml — ACCOUNT block inside SETUP (52.13): flat CAPS header,
-// muted status lines, one action row. Logout lives in the SETUP footer (panel).
+// WalletSection.qml — ACCOUNT block inside SETUP. Values are the actions:
+// the short address next to the header copies it, and the two-factor line
+// manages MFA. No buttons (Omarchy pattern); the network sits below the header.
 import QtQuick
+import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
 Column {
     id: root
+    ThemeColors { id: pal }
 
     property string walletAddress: ""
     property string paymentNetwork: ""
@@ -24,19 +27,22 @@ Column {
     readonly property color formMuted: Qt.darker(Color.foreground, 1.45)
 
     width: parent ? parent.width : 0
-    spacing: Style.space(8)
+    spacing: Style.space(6)
 
-    Row {
+    // Header: ACCOUNT + short address (click to copy). Hand cursor only when
+    // there is an address to copy.
+    RowLayout {
+        width: parent.width
         spacing: Style.space(6)
+
         Text {
-            anchors.verticalCenter: parent.verticalCenter
             text: Model.ICON_WALLET
             color: root.formMuted
             font.family: Style.font.family
             font.pixelSize: Style.font.icon
         }
+
         Text {
-            anchors.verticalCenter: parent.verticalCenter
             text: "ACCOUNT"
             color: root.formMuted
             font.family: Style.font.family
@@ -44,48 +50,77 @@ Column {
             font.letterSpacing: 1
             font.bold: true
         }
+
+        Item { Layout.fillWidth: true }
+
+        Item {
+            visible: root.walletAddress !== ""
+            Layout.preferredWidth: addressText.implicitWidth
+            Layout.preferredHeight: addressText.implicitHeight
+
+            MouseArea {
+                id: addressHit
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                hoverEnabled: true
+                onClicked: {
+                    root.copyAddress()
+                    root.addressCopied = true
+                }
+            }
+
+            Text {
+                id: addressText
+                text: root.addressCopied ? Model.copyDoneLabel() : Model.shortAddress(root.walletAddress)
+                textFormat: Text.PlainText
+                color: root.formMuted
+                font.pixelSize: Style.font.caption
+            }
+
+            PanelToolTip {
+                visible: addressHit.containsMouse && !root.addressCopied
+                text: "Copy full address"
+            }
+        }
     }
 
+    // Network, below the header (empty when unknown → no blank row).
     Text {
         width: parent.width
-        text: Model.accountNetworkLine(root.paymentNetwork, root.walletAddress)
+        visible: text !== ""
+        text: Model.networkLabel(root.paymentNetwork)
         textFormat: Text.PlainText
         color: root.formMuted
         font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-        visible: text !== ""
     }
 
-    Text {
+    // Two-factor: friendly clickable line. On → manage/reset, off → set up.
+    Item {
         width: parent.width
-        text: Model.mfaLabel(root.mfaEnrolled, root.mfaMethod)
-        color: Model.mfaBadge(root.mfaEnrolled)
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.WordWrap
-    }
+        height: mfaText.implicitHeight
 
-    Flow {
-        width: parent.width
-        spacing: Style.space(8)
-
-        Button {
-            text: root.addressCopied ? Model.copyDoneLabel() : "Copy address"
-            tooltipText: root.addressCopied ? Model.copyDoneLabel() : "Copy full address"
-            onClicked: { root.copyAddress(); root.addressCopied = true }
+        MouseArea {
+            id: mfaHit
+            anchors.fill: parent
+            enabled: !root.mfaBusy
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            hoverEnabled: true
+            onClicked: root.mfaEnrolled ? root.openMfaReset() : root.startMfaEnroll()
         }
 
-        Button {
-            visible: !root.mfaEnrolled
-            text: "Enable MFA"
-            enabled: !root.mfaBusy
-            onClicked: root.startMfaEnroll()
+        Text {
+            id: mfaText
+            width: parent.width
+            text: Model.mfaLabel(root.mfaEnrolled)
+            textFormat: Text.PlainText
+            color: pal.mfaBadge(root.mfaEnrolled)
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
         }
 
-        Button {
-            visible: root.mfaEnrolled
-            text: "Reset MFA"
-            enabled: !root.mfaBusy
-            onClicked: root.openMfaReset()
+        PanelToolTip {
+            visible: mfaHit.containsMouse
+            text: Model.mfaTooltip(root.mfaEnrolled, root.mfaMethod)
         }
     }
 

@@ -14,6 +14,7 @@ import "Model.js" as Model
 
 Panel {
     id: root
+    ThemeColors { id: pal }
 
     moduleName: Model.PLUGIN_ID
     manageIpc: false
@@ -45,7 +46,7 @@ Panel {
 
     // Hero + alert snapshot (set in refresh() via Model.heroState).
     property string heroLabel: "Offline"
-    property color heroColor: Model.Palette.offline
+    property color heroColor: pal.offline
     property string alertText: ""
     property int clockSkewMs: 0
 
@@ -165,7 +166,7 @@ Panel {
         root.daemonVersion = ""
         root.balanceNum = 0
         root.heroLabel = "Offline"
-        root.heroColor = Model.Palette.offline
+        root.heroColor = pal.offline
         root.alertText = ""
     }
     function switchPanel(direction) {
@@ -227,7 +228,7 @@ Panel {
                     cap: root.capDaily
                 })
                 root.heroLabel = hs.label
-                root.heroColor = hs.color
+                root.heroColor = pal.colorForRole(hs.role)
                 // Alert only for the over-budget hero (paused/error heroes
                 // speak for themselves; error text keeps its own line).
                 root.alertText = hs.over ? Model.overBudgetAlert(hs.over) : ""
@@ -342,7 +343,7 @@ Panel {
     }
 
     function copyAddress() {
-        var clean = root.walletAddress.replace(/[^0-9a-fA-Fx]/g, "")
+        var clean = Model.walletCopyValue(root.walletAddress)
         if (clean === "") return
         addressCopyProc.pendingText = Model.clipboardStdin(clean)
         addressCopyProc.command = Model.clipboardCommand(clean)
@@ -655,7 +656,7 @@ Panel {
                 width: parent.width
                 visible: !root.online
                 text: "Offline — waiting for the daemon."
-                color: Model.Palette.offline
+                color: pal.offline
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
             }
@@ -910,7 +911,7 @@ Panel {
                             }
                             Button {
                                 text: "Logout"
-                                color: Model.Palette.error
+                                color: pal.error
                                 focusable: true
                                 enabled: !root.busy
                                 onClicked: if (!root.busy) root.doLogout()

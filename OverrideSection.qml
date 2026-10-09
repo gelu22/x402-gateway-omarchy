@@ -1,8 +1,8 @@
-// OverrideSection.qml — remembered over-budget approvals: count + empty state
-// + Edit in config (52.11/52.13). Sole SETUP path to config.json.
+// OverrideSection.qml — remembered over-budget approvals: count + empty state.
+// The header opens the plugin config in the editor; the remembered list lives
+// in config.json and removal is manual there (no inline remove, no MFA).
 import QtQuick
 import qs.Commons
-import qs.Ui
 import "Model.js" as Model
 
 Column {
@@ -18,26 +18,37 @@ Column {
     width: parent ? parent.width : 0
     spacing: Style.space(8)
 
-    Row {
+    // Header is the action (Omarchy pattern): hand cursor only when a config
+    // path exists; never a silent no-op.
+    MouseArea {
         width: parent.width
-        spacing: Style.space(6)
+        height: headerRow.implicitHeight
+        enabled: root.configPath !== ""
+        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: root.openConfig()
 
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: Model.ICON_URLS
-            color: root.formMuted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.icon
-        }
+        Row {
+            id: headerRow
+            width: parent.width
+            spacing: Style.space(6)
 
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            text: ("Remembered overrides (" + root.count + ")").toUpperCase()
-            color: root.formMuted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1
-            font.bold: true
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Model.ICON_URLS
+                color: root.formMuted
+                font.family: Style.font.family
+                font.pixelSize: Style.font.icon
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: ("Remembered overrides (" + root.count + ")").toUpperCase()
+                color: root.formMuted
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1
+                font.bold: true
+            }
         }
     }
 
@@ -50,12 +61,5 @@ Column {
         color: root.formMuted
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
-    }
-
-    Button {
-        text: "Edit in config"
-        enabled: root.configPath !== ""
-        tooltipText: root.configPath !== "" ? root.configPath : "Config path unavailable"
-        onClicked: root.openConfig()
     }
 }

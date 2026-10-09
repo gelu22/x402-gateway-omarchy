@@ -7,6 +7,7 @@ import "Model.js" as Model
 
 Column {
     id: root
+    ThemeColors { id: pal }
 
     property int step: -1            // 0 email | 1 otp | 2 budgets | 3 done
     property bool busy: false
@@ -89,7 +90,7 @@ Column {
         Text {
             width: parent.width
             text: "✅ Active. Agents pay automatically within limits."
-            color: Model.Palette.ok
+            color: pal.ok
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap
         }

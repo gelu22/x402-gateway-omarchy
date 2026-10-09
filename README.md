@@ -11,7 +11,7 @@ Download the installer from a **pinned release**, verify its signature, then
 run it — never pipe a remote script straight into a shell:
 
 ```bash
-VERSION=v0.1.30   # any released tag (see the Releases page)
+VERSION=v0.1.31   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \
@@ -145,6 +145,27 @@ ceiling is not, so tampering with that file cannot lift it.
   (or with an API key), and this build does not carry the value. Nothing on your
   computer can change it — see the release notes for what your operator deployed.
 
+### Per-agent daily limits
+
+Each agent label (`X-Gateway-Agent` / `GATEWAY_AGENT`) can have its own daily
+limit, carved out of the same local budget as layer 1:
+
+- **Where.** The caps live in `~/.local/state/x402-gateway/policy.json`:
+  `agent_daily_cap_micro_usdc` (the default for every label) and
+  `agent_caps_micro_usdc` (per-label overrides, up to 64). Today's spend per label
+  is counted in `budget.json`, in the same directory (0600). Both files are created
+  on first use.
+- **How.** Set a label's limit from the panel: AI AGENTS → click `spent / limit`,
+  enter an amount, confirm with MFA. The default limit is set in the config/CLI.
+- **`0` means two different things, by position.** A `0` **default**
+  (`agent_daily_cap_micro_usdc`) turns per-agent caps off — every agent shares the
+  daily budget. A `0` **override for a label** means that agent does not auto-pay:
+  its payments return `agent_cap_exceeded` until the owner approves one.
+- **Enforcement, and its limit.** The daemon checks the label cap in the same
+  atomic reservation as the daily cap and the per-seller sub-cap. Like the rest of
+  layer 1, these files are local and writable by your user, so this guards against
+  a mistaken or overeager agent under a stable label — not against malware. The
+  hard per-signature ceiling (layer 2) is unchanged.
 
 ## Supported payment rail
 
@@ -204,7 +225,8 @@ and one-click **Integrate** per agent in the panel ("AI agents" section), or
 manually. Agents installed outside `~/.local/bin` (e.g. `/usr/bin`) are detected
 too. Detection is data-driven: add an agent with `setup-agents.sh --write-template`.
 Omarchy launchers without a known config file show up as installed and do not get
-an Integrate button.
+an Integrate button. Each agent's daily limit lives under
+[Per-agent daily limits](#per-agent-daily-limits).
 
 ```json
 {"mcp": {"x402-gateway": {

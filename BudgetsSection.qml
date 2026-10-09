@@ -8,6 +8,7 @@ import "Model.js" as Model
 
 Column {
     id: root
+    ThemeColors { id: pal }
 
     property real spendToday: 0
     property real capDaily: 5
@@ -151,7 +152,7 @@ Column {
         width: parent.width
         visible: root.validationError !== ""
         text: root.validationError
-        color: Model.Palette.error
+        color: pal.error
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
     }
@@ -160,7 +161,7 @@ Column {
         width: parent.width
         visible: root.capWarning !== ""
         text: root.capWarning
-        color: Model.Palette.warn
+        color: pal.warn
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
     }

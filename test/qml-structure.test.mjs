@@ -328,7 +328,7 @@ test("class D ratchet: property string state on Item is rejected", () => {
 // Class E (59.1 / 60.1): Text showing untrusted/URL-shaped data must set PlainText.
 // AutoText parses HTML and can fetch loopback before daemon SSRF (#10216, #10220).
 const UNTRUSTED_TEXT_RE =
-  /\b(targetUrl|MFA_RESET_URL|accountNetworkLine|walletAddress|modelData\.(host|reason|name)|\bmodelData\b|\.secret\b|root\.text\b|errorMessage|alertText)\b/
+  /\b(targetUrl|MFA_RESET_URL|walletAddress|modelData\.(host|reason|name)|\bmodelData\b|\.secret\b|root\.text\b|errorMessage|alertText)\b/
 
 /**
  * Find Text { ... text: <untrusted> ... } blocks missing textFormat: Text.PlainText.

@@ -10,6 +10,7 @@ import "Model.js" as Model
 
 Item {
     id: root
+    ThemeColors { id: pal }
 
     // Numeric inputs (USD). Formatting happens HERE, once, with
     // Model.formatUsdExact — a pre-formatted string would be re-rounded to
@@ -97,7 +98,7 @@ Item {
 
                 Text {
                     text: "⚠"
-                    color: Model.Palette.warn
+                    color: pal.warn
                     font.pixelSize: Style.font.title
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -127,7 +128,7 @@ Item {
             Text {
                 width: parent.width
                 text: Model.formatUsdcExact(root.amountUsd)
-                color: Model.Palette.warn
+                color: pal.warn
                 font.pixelSize: Style.font.display
                 font.weight: Font.Bold
             }
@@ -138,7 +139,7 @@ Item {
                 visible: root.priceChanged
                 text: (root.previousUsd > 0 ? "Was " + Model.formatUsdcExact(root.previousUsd) + ", now this. " : "")
                       + "The seller now asks more than was approved. Pay the new amount?"
-                color: Model.Palette.warn
+                color: pal.warn
                 font.pixelSize: Style.font.caption
             }
 
@@ -148,7 +149,7 @@ Item {
                 visible: Model.overrideReasonText(root.code, root.targetUrl) !== ""
                 text: Model.overrideReasonText(root.code, root.targetUrl)
                 textFormat: Text.PlainText
-                color: Model.Palette.warn
+                color: pal.warn
                 font.pixelSize: Style.font.caption
             }
 
@@ -159,7 +160,7 @@ Item {
                 text: root.budgetCapUsd > 0
                       ? "Over daily budget (" + Model.formatUsdcExact(root.budgetCapUsd) + ")"
                       : "Auto-pay is off — approve this payment?"
-                color: Model.Palette.warn
+                color: pal.warn
                 font.pixelSize: Style.font.caption
             }
 
@@ -170,7 +171,7 @@ Item {
                 width: parent.width
                 text: root.targetUrl
                 textFormat: Text.PlainText
-                color: root.urlCopied ? Model.Palette.ok : Color.foreground
+                color: root.urlCopied ? pal.ok : Color.foreground
                 opacity: 0.7
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideMiddle

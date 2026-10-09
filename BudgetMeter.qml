@@ -6,9 +6,10 @@ import "Model.js" as Model
 
 Rectangle {
     id: root
+    ThemeColors { id: pal }
 
     property real fraction: 0
-    property color tone: Model.Palette.ok
+    property color tone: pal.ok
 
     readonly property real meterHeight: Math.max(2, Style.space(3))
 

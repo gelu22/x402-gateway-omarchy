@@ -9,9 +9,10 @@ import "Model.js" as Model
 
 Column {
     id: root
+    ThemeColors { id: pal }
 
     property string heroLabel: "Offline"
-    property color heroColor: Model.Palette.offline
+    property color heroColor: pal.offline
     property bool paused: false
     property bool pausing: false
     property bool busy: false

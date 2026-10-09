@@ -52,19 +52,9 @@ var SHORT_ADDR_MIN = 12
 // LOG_TAG prefixes all plugin journal lines (grep-friendly).
 var LOG_TAG = "[gelu22.gateway]"
 
-// Palette centralizes every non-theme color (008.1). Hues intentionally
-// UNCHANGED (centralization, not a re-theme). Note: qs theme Color.muted is
-// dead at runtime (theme overrides it) — hence hairline lives here.
-var Palette = {
-    ok: "#3fb950",        // active / integrated / success
-    warn: "#e3b341",      // exhausted / warning
-    error: "#f85149",     // errors / destructive
-    paused: "#d29922",    // paused state
-    info: "#58a6ff",      // sign-in required
-    offline: "#6e7681",   // offline / unknown state
-    bannerBg: "#3a2b0f",  // exhausted banner background
-    hairline: "#5a6169"   // subtle box border
-}
+// Panel colors are Omarchy theme roles resolved in Palette.qml. Model.js is
+// plain JS with no access to the Color singleton, so it returns role NAMES
+// (see statusRole/mfaRole/heroState), never colors or hex literals.
 
 // ---- Shared enums/constants (010.1: single source, no magic literals) ----
 
@@ -354,28 +344,37 @@ function copyDoneLabel() {
     return "Copied ✓"
 }
 
-// mfaBadge maps MFA enrollment to a Palette color (on = ok, off = offline).
-function mfaBadge(mfaEnrolled) {
-    return mfaEnrolled === true ? Palette.ok : Palette.offline
+// mfaRole maps MFA enrollment to a semantic role (on = ok, off = offline).
+// Palette.qml resolves the role to a theme color.
+function mfaRole(mfaEnrolled) {
+    return mfaEnrolled === true ? "ok" : "offline"
 }
 
-// mfaLabel renders the explicit MFA status line. Method is uppercased when
-// present ("totp" → "TOTP"); off reads as a soft recommendation, never alarm.
-function mfaLabel(mfaEnrolled, method) {
-    if (mfaEnrolled !== true) return "MFA: off — recommended"
-    var m = String(method || "").toUpperCase()
-    return m !== "" ? "MFA: on (" + m + ")" : "MFA: on"
+// mfaLabel is the friendly two-factor status line. The state is carried by the
+// text (color is only reinforcement); the method lives in mfaTooltip, not here.
+function mfaLabel(mfaEnrolled) {
+    return mfaEnrolled === true ? "Two-factor protection: on" : "Two-factor protection: off"
 }
 
-// accountNetworkLine is the ACCOUNT fact line (52.13): network · short
-// address. Empty segments omitted (no stray " · ").
-function accountNetworkLine(network, address) {
-    var parts = []
-    var net = networkLabel(network)
-    var addr = shortAddress(address)
-    if (net !== "") parts.push(net)
-    if (addr !== "") parts.push(addr)
-    return parts.join(" · ")
+// mfaTooltip explains the two-factor state and what a click does. method is the
+// raw enrollment method ("totp"); it is described in plain words, never shown.
+function mfaTooltip(mfaEnrolled, method) {
+    if (mfaEnrolled === true) {
+        var how = String(method || "").trim() !== ""
+            ? "a one-time code from your authenticator app"
+            : "a one-time code"
+        return "On — payments are approved with " + how + ". Click to change or reset it."
+    }
+    return "Off — click to add an authenticator app and protect payments with a one-time code."
+}
+
+// walletCopyValue is the only value the wallet-address action copies: the
+// address reduced to hex/x characters (same filter as before the refactor).
+// Returns "" when there is no usable address, so callers cannot copy junk or
+// show a false "Copied".
+function walletCopyValue(address) {
+    if (typeof address !== "string") return ""
+    return address.replace(/[^0-9a-fA-Fx]/g, "")
 }
 
 // mfaVerifyReason builds the verify-dialog context from the blocking fetch
@@ -495,15 +494,16 @@ function shouldSurfaceMfa(prevKey, prevAtMs, key, nowMs, cooldownMs) {
     return !isFinite(elapsed) || elapsed >= Number(cooldownMs)
 }
 
-// statusColor maps widget states to Palette entries (fail-safe: unknown → offline).
-function statusColor(state) {
+// statusRole maps widget states to a semantic role (fail-safe: unknown →
+// offline). Palette.qml resolves the role to a theme color.
+function statusRole(state) {
     switch (state) {
-        case State.ACTIVE:     return Palette.ok
-        case State.PAUSED:     return Palette.paused
-        case State.EXHAUSTED:  return Palette.warn
-        case State.LOGGED_OUT: return Palette.info
-        case State.ERROR:      return Palette.error
-        default:               return Palette.offline
+        case State.ACTIVE:     return "ok"
+        case State.PAUSED:     return "paused"
+        case State.EXHAUSTED:  return "warn"
+        case State.LOGGED_OUT: return "info"
+        case State.ERROR:      return "error"
+        default:               return "offline"
     }
 }
 
@@ -569,22 +569,23 @@ function resolveStep(currentStep, daemonState) {
 
 // heroState computes the honest hero line from live daemon values.
 // opts: {paused, online, session, wallet, signerOk, spend, cap} (numbers).
-// Returns {label, color, over} — over is true when today's spend is past the
-// daily cap. Over-budget is neutral info (warn), never alarm: the daemon keeps
-// paying with per-payment approval.
+// Returns {label, role, over} — role is a Palette role name (resolved to a
+// theme color in QML); over is true when today's spend is past the daily cap.
+// Over-budget is neutral info (warn), never alarm: the daemon keeps paying with
+// per-payment approval.
 function heroState(o) {
     var over = o.cap > 0 && o.spend > o.cap
     if (o.paused === true)
-        return { label: "Paused", color: Palette.paused, over: over }
+        return { label: "Paused", role: "paused", over: over }
     if (o.online !== true)
-        return { label: "Offline", color: Palette.offline, over: over }
+        return { label: "Offline", role: "offline", over: over }
     if (o.session === State.LOGGED_OUT || !o.wallet)
-        return { label: "Sign-in required", color: Palette.info, over: over }
+        return { label: "Sign-in required", role: "info", over: over }
     if (o.signerOk === false)
-        return { label: "Error", color: Palette.error, over: over }
+        return { label: "Error", role: "error", over: over }
     if (over)
-        return { label: "Over budget", color: Palette.warn, over: over }
-    return { label: "Active", color: Palette.ok, over: over }
+        return { label: "Over budget", role: "warn", over: over }
+    return { label: "Active", role: "ok", over: over }
 }
 
 // overBudgetAlert renders the alert-slot line when over budget (empty string =
@@ -1041,6 +1042,34 @@ function agentSpendRows(status, agents) {
         })
     }
     return out
+}
+
+// DEFAULT_AVAILABLE_LIMIT is how many "available" agents render before the
+// panel asks to "Show more" (the panel has no scroll).
+var DEFAULT_AVAILABLE_LIMIT = 8
+
+// agentGroups splits the agent rows from agentSpendRows into the three groups
+// the panel renders: connected (integrated), available (detectable, not
+// integrated), and unlabeled (the read-only "" bucket). Order is preserved.
+function agentGroups(status, agents) {
+    var rows = agentSpendRows(status, agents)
+    var connected = [], available = [], unlabeled = []
+    for (var i = 0; i < rows.length; i++) {
+        var r = rows[i]
+        if (r.readOnly) unlabeled.push(r)
+        else if (r.integrated) connected.push(r)
+        else available.push(r)
+    }
+    return { connected: connected, available: available, unlabeled: unlabeled }
+}
+
+// capList returns the first `limit` items plus how many the cap hid. limit <= 0
+// or missing means "no cap" (show everything, hidden 0).
+function capList(list, limit) {
+    var l = Array.isArray(list) ? list : []
+    var n = (typeof limit === "number" && limit > 0) ? limit : l.length
+    if (l.length <= n) return { shown: l.slice(), hidden: 0 }
+    return { shown: l.slice(0, n), hidden: l.length - n }
 }
 
 // agentCapsBody builds POST /policy body replacing agent_caps_micro_usdc.

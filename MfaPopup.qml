@@ -16,6 +16,7 @@ import "Model.js" as Model
 
 PanelWindow {
     id: root
+    ThemeColors { id: pal }
 
     property bool open: false
     property string mode: "enroll"        // enroll | verify | reset
@@ -157,7 +158,7 @@ PanelWindow {
                 height: Style.space(160) + 2 * Style.space(8)
                 radius: Style.cornerRadius
                 color: Color.background
-                border.color: Model.Palette.hairline
+                border.color: pal.hairline
                 border.width: 1
 
                 Image {
@@ -247,7 +248,7 @@ PanelWindow {
                 width: parent.width
                 visible: root.errorText !== ""
                 text: root.errorText
-                color: Model.Palette.error
+                color: pal.error
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
             }

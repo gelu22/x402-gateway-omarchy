@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.31] — 2026-10-09
+
+### Added
+
+- **AI AGENTS groups:** always-visible **CONNECTED**, and a collapsible **AVAILABLE (N)** group with a per-agent cap and "Show more" — the panel stays usable with many agents.
+- **Per-agent daily limits are documented** in the README (where they live, how to set them, what `0` means).
+
+### Changed
+
+- **ACCOUNT section redesigned:** the short address sits next to the header (click to copy), the network is on its own line, and the two-factor line is a friendly, clickable status ("Two-factor protection: on/off") with an explaining tooltip. The Copy/Enable/Reset buttons are gone.
+- **Panel colors follow the active Omarchy theme.** The fixed palette is replaced by theme roles, so the panel matches whatever theme you run.
+
+### Fixed
+
+- **HISTORY opens the editor** with the saved history again (the write step never closed stdin, so the action appeared to do nothing).
+- **Clicking a remembered overrides header** opens the plugin config in the editor.
+
 ## [0.1.30] — 2026-10-08
 
 ### Fixed

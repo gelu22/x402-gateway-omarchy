@@ -27,10 +27,9 @@ function loadModelJS() {
       parseStatus,
       parseOverrideError,
       parseLogoutResponse: (typeof parseLogoutResponse !== "undefined") ? parseLogoutResponse : undefined,
-      statusColor,
+      statusRole,
       heroState,
       overBudgetAlert,
-      Palette: (typeof Palette !== "undefined") ? Palette : undefined,
       MICRO_USDC: (typeof MICRO_USDC !== "undefined") ? MICRO_USDC : undefined,
       CURL_TIMEOUT_S: (typeof CURL_TIMEOUT_S !== "undefined") ? CURL_TIMEOUT_S : undefined,
       CURL_TIMEOUT_WAIT_S: (typeof CURL_TIMEOUT_WAIT_S !== "undefined") ? CURL_TIMEOUT_WAIT_S : undefined,
@@ -47,6 +46,9 @@ function loadModelJS() {
       parseHistory: (typeof parseHistory !== "undefined") ? parseHistory : undefined,
       historyRows: (typeof historyRows !== "undefined") ? historyRows : undefined,
       agentSpendRows: (typeof agentSpendRows !== "undefined") ? agentSpendRows : undefined,
+      agentGroups: (typeof agentGroups !== "undefined") ? agentGroups : undefined,
+      capList: (typeof capList !== "undefined") ? capList : undefined,
+      DEFAULT_AVAILABLE_LIMIT: (typeof DEFAULT_AVAILABLE_LIMIT !== "undefined") ? DEFAULT_AVAILABLE_LIMIT : undefined,
       agentCapsBody: (typeof agentCapsBody !== "undefined") ? agentCapsBody : undefined,
       agentLimitCaption: (typeof agentLimitCaption !== "undefined") ? agentLimitCaption : undefined,
       errorLabel: (typeof errorLabel !== "undefined") ? errorLabel : undefined,
@@ -89,9 +91,10 @@ function loadModelJS() {
       Method: (typeof Method !== "undefined") ? Method : undefined,
       formatUsdc: (typeof formatUsdc !== "undefined") ? formatUsdc : undefined,
       ICON_WALLET: (typeof ICON_WALLET !== "undefined") ? ICON_WALLET : undefined,
-      mfaBadge: (typeof mfaBadge !== "undefined") ? mfaBadge : undefined,
+      mfaRole: (typeof mfaRole !== "undefined") ? mfaRole : undefined,
       mfaLabel: (typeof mfaLabel !== "undefined") ? mfaLabel : undefined,
-      accountNetworkLine: (typeof accountNetworkLine !== "undefined") ? accountNetworkLine : undefined,
+      mfaTooltip: (typeof mfaTooltip !== "undefined") ? mfaTooltip : undefined,
+      walletCopyValue: (typeof walletCopyValue !== "undefined") ? walletCopyValue : undefined,
       mfaVerifyReason: (typeof mfaVerifyReason !== "undefined") ? mfaVerifyReason : undefined,
       usdToMicro: (typeof usdToMicro !== "undefined") ? usdToMicro : undefined,
       microToUsd: (typeof microToUsd !== "undefined") ? microToUsd : undefined,
@@ -490,22 +493,27 @@ describe("Model.js", () => {
     });
   });
 
-  describe("Palette (008.1: single source, no hardcoded colors)", () => {
-    it("should expose all 8 entries as valid hex colors", () => {
-      const keys = ["ok", "warn", "error", "paused", "info", "offline", "bannerBg", "hairline"];
-      for (const k of keys) {
-        assert.match(Model.Palette[k], /^#[0-9a-fA-F]{6}$/, `Palette.${k} must be hex`);
-      }
+  describe("theme roles (Model returns names; Palette.qml resolves colors)", () => {
+    it("statusRole maps every known state and fails safe", () => {
+      assert.strictEqual(Model.statusRole("active"), "ok");
+      assert.strictEqual(Model.statusRole("paused"), "paused");
+      assert.strictEqual(Model.statusRole("exhausted"), "warn");
+      assert.strictEqual(Model.statusRole("logged_out"), "info");
+      assert.strictEqual(Model.statusRole("error"), "error");
+      assert.strictEqual(Model.statusRole("offline"), "offline");
+      assert.strictEqual(Model.statusRole("bogus"), "offline");
     });
 
-    it("statusColor should map every known state and fail safe", () => {
-      assert.strictEqual(Model.statusColor("active"), Model.Palette.ok);
-      assert.strictEqual(Model.statusColor("paused"), Model.Palette.paused);
-      assert.strictEqual(Model.statusColor("exhausted"), Model.Palette.warn);
-      assert.strictEqual(Model.statusColor("logged_out"), Model.Palette.info);
-      assert.strictEqual(Model.statusColor("error"), Model.Palette.error);
-      assert.strictEqual(Model.statusColor("offline"), Model.Palette.offline);
-      assert.strictEqual(Model.statusColor("bogus"), Model.Palette.offline);
+    it("mfaRole is ok/offline", () => {
+      assert.strictEqual(Model.mfaRole(true), "ok");
+      assert.strictEqual(Model.mfaRole(false), "offline");
+      assert.strictEqual(Model.mfaRole(undefined), "offline");
+    });
+
+    it("Model.js carries no color literals", () => {
+      assert.strictEqual(typeof Model.Palette, "undefined");
+      assert.strictEqual(typeof Model.statusColor, "undefined");
+      assert.strictEqual(typeof Model.mfaBadge, "undefined");
     });
   });
 
@@ -619,17 +627,17 @@ describe("Model.js", () => {
       assert.strictEqual(hs.label, "Over budget");
       assert.strictEqual(hs.over, true);
     });
-    it("should assert colors per state (visual contract)", () => {
+    it("should assert roles per state (visual contract)", () => {
       const cases = [
-        [{ ...base, paused: true }, Model.Palette.paused],
-        [{ ...base, online: false }, Model.Palette.offline],
-        [{ ...base, session: "logged_out" }, Model.Palette.info],
-        [{ ...base, signerOk: false }, Model.Palette.error],
-        [{ ...base, spend: 1.5 }, Model.Palette.warn],
-        [base, Model.Palette.ok]
+        [{ ...base, paused: true }, "paused"],
+        [{ ...base, online: false }, "offline"],
+        [{ ...base, session: "logged_out" }, "info"],
+        [{ ...base, signerOk: false }, "error"],
+        [{ ...base, spend: 1.5 }, "warn"],
+        [base, "ok"]
       ];
-      for (const [input, color] of cases)
-        assert.strictEqual(Model.heroState(input).color, color);
+      for (const [input, role] of cases)
+        assert.strictEqual(Model.heroState(input).role, role);
     });
     it("should treat spend == cap as within budget (strict >)", () => {
       const hs = Model.heroState({ ...base, spend: 1, cap: 1 });
@@ -903,19 +911,19 @@ describe("Model.js", () => {
       assert.strictEqual(Model.clipboardStdin("a'b"), "a'b");
     });
 
-    it("statusColor/stateLabel return exact per-state values", () => {
+    it("statusRole/stateLabel return exact per-state values", () => {
       assert.strictEqual(Model.stateLabel(Model.State.ACTIVE), "Active");
       assert.strictEqual(Model.stateLabel(Model.State.PAUSED), "Paused");
       assert.strictEqual(Model.stateLabel(Model.State.EXHAUSTED), "Over budget");
       assert.strictEqual(Model.stateLabel(Model.State.LOGGED_OUT), "Sign-in required");
       assert.strictEqual(Model.stateLabel(Model.State.ERROR), "Error");
       assert.strictEqual(Model.stateLabel("bogus"), "Offline");
-      assert.strictEqual(Model.statusColor(Model.State.ACTIVE), Model.Palette.ok);
-      assert.strictEqual(Model.statusColor(Model.State.PAUSED), Model.Palette.paused);
-      assert.strictEqual(Model.statusColor(Model.State.EXHAUSTED), Model.Palette.warn);
-      assert.strictEqual(Model.statusColor(Model.State.LOGGED_OUT), Model.Palette.info);
-      assert.strictEqual(Model.statusColor(Model.State.ERROR), Model.Palette.error);
-      assert.strictEqual(Model.statusColor("bogus"), Model.Palette.offline);
+      assert.strictEqual(Model.statusRole(Model.State.ACTIVE), "ok");
+      assert.strictEqual(Model.statusRole(Model.State.PAUSED), "paused");
+      assert.strictEqual(Model.statusRole(Model.State.EXHAUSTED), "warn");
+      assert.strictEqual(Model.statusRole(Model.State.LOGGED_OUT), "info");
+      assert.strictEqual(Model.statusRole(Model.State.ERROR), "error");
+      assert.strictEqual(Model.statusRole("bogus"), "offline");
     });
 
     it("formatUsdc appends the unit; USDC/USD_SYMBOL/Method pinned", () => {
@@ -992,30 +1000,34 @@ describe("Model.js", () => {
       }
     });
 
-    it("mfaLabel is explicit for on/off", () => {
-      assert.strictEqual(Model.mfaLabel(true, "totp"), "MFA: on (TOTP)");
-      assert.strictEqual(Model.mfaLabel(true, ""), "MFA: on");
-      assert.strictEqual(Model.mfaLabel(false, ""), "MFA: off — recommended");
-      assert.strictEqual(Model.mfaLabel(false, "totp"), "MFA: off — recommended");
+    it("mfaLabel is a friendly on/off status line", () => {
+      assert.strictEqual(Model.mfaLabel(true), "Two-factor protection: on");
+      assert.strictEqual(Model.mfaLabel(false), "Two-factor protection: off");
     });
 
-    it("accountNetworkLine joins network · short (no MFA)", () => {
-      assert.strictEqual(
-        Model.accountNetworkLine("eip155:84532", "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"),
-        "Base Sepolia · 0x3caa…630F"
-      );
-      assert.strictEqual(Model.accountNetworkLine("", ""), "");
-      assert.strictEqual(Model.accountNetworkLine("eip155:84532", ""), "Base Sepolia");
-      assert.strictEqual(
-        Model.accountNetworkLine("", "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"),
-        "0x3caa…630F"
-      );
+    it("mfaTooltip explains the state (method in plain words, never TOTP)", () => {
+      assert.match(Model.mfaTooltip(true, "totp"), /authenticator app/);
+      assert.match(Model.mfaTooltip(true, "totp"), /Click to change or reset/);
+      assert.doesNotMatch(Model.mfaTooltip(true, "totp"), /TOTP/);
+      assert.match(Model.mfaTooltip(false, ""), /click to add an authenticator app/);
     });
 
-    it("mfaBadge maps on/off to ok/offline", () => {
-      assert.strictEqual(Model.mfaBadge(true), Model.Palette.ok);
-      assert.strictEqual(Model.mfaBadge(false), Model.Palette.offline);
-      assert.strictEqual(Model.mfaBadge(undefined), Model.Palette.offline);
+    it("walletCopyValue reduces to hex/x, empty when none", () => {
+      assert.strictEqual(
+        Model.walletCopyValue("0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"),
+        "0x3caabbF86C8F53C3CdCB4DF3BE0Fa68FCe33630F"
+      );
+      // Spaces, "…" and any non hex/x characters are stripped.
+      assert.strictEqual(Model.walletCopyValue("0x3caa…bb CC"), "0x3caabbCC");
+      assert.strictEqual(Model.walletCopyValue(""), "");
+      assert.strictEqual(Model.walletCopyValue("!!! zzz"), "");
+      assert.strictEqual(Model.walletCopyValue(undefined), "");
+    });
+
+    it("mfaRole maps on/off to ok/offline", () => {
+      assert.strictEqual(Model.mfaRole(true), "ok");
+      assert.strictEqual(Model.mfaRole(false), "offline");
+      assert.strictEqual(Model.mfaRole(undefined), "offline");
     });
 
     it("copyDoneLabel returns the exact transient caption", () => {
@@ -1595,6 +1607,28 @@ describe("agentSpendRows / agentCapsBody / errorLabel (55.7)", () => {
     assert.strictEqual(rows[1].readOnly, true);
     assert.strictEqual(rows[1].spentText, "0.50");
     assert.strictEqual(rows[1].connectable, false);
+  });
+  it("agentGroups splits connected / available / unlabeled", () => {
+    const status = { raw: { agents: [
+      { label: "codex", spent_today_micro: 0, cap_micro: 0 },
+      { label: "", spent_today_micro: 1, cap_micro: 0 },
+    ] } };
+    const agents = [
+      { name: "codex", integrated: true },
+      { name: "cursor", integrated: false, connectable: true },
+    ];
+    const g = M.agentGroups(status, agents);
+    assert.deepStrictEqual(g.connected.map((r) => r.name), ["codex"]);
+    assert.deepStrictEqual(g.available.map((r) => r.name), ["cursor"]);
+    assert.deepStrictEqual(g.unlabeled.map((r) => r.name), ["unlabeled"]);
+  });
+  it("capList shows first N and the hidden count", () => {
+    const list = [1, 2, 3, 4, 5];
+    assert.deepStrictEqual(M.capList(list, 2), { shown: [1, 2], hidden: 3 });
+    assert.deepStrictEqual(M.capList(list, 5), { shown: [1, 2, 3, 4, 5], hidden: 0 });
+    assert.deepStrictEqual(M.capList(list, 9), { shown: [1, 2, 3, 4, 5], hidden: 0 });
+    assert.deepStrictEqual(M.capList([], 3), { shown: [], hidden: 0 });
+    assert.strictEqual(M.DEFAULT_AVAILABLE_LIMIT, 8);
   });
   it("agentCapsBody builds full map in micro", () => {
     const built = M.agentCapsBody({ other: 1000 }, "codex", 2.5);

@@ -10,6 +10,7 @@ import "Model.js" as Model
 
 CollapsibleSection {
     id: root
+    ThemeColors { id: pal }
 
     property string socketPath: ""
     property string homeDir: ""
@@ -20,7 +21,7 @@ CollapsibleSection {
     title: "HISTORY"
     iconText: Model.ICON_HISTORY
     trailingText: root.busy ? "…" : (root.errorText !== "" ? root.errorText : "Opens in editor")
-    trailingColor: root.errorText !== "" ? Model.Palette.error : Color.foreground
+    trailingColor: root.errorText !== "" ? pal.error : Color.foreground
     showChevron: true
     expanded: false
 
@@ -53,6 +54,19 @@ CollapsibleSection {
     onToggle: {
         root.expanded = false
         root.openHistory()
+    }
+
+    // Watchdog: a stuck process chain must never leave busy=true, which would
+    // ignore every later click (silent no-op). Bounds curl + write + editor.
+    Timer {
+        interval: (Model.CURL_TIMEOUT_S + 15) * 1000
+        running: root.busy
+        onTriggered: {
+            if (!root.busy) return
+            root.busy = false
+            root.errorText = "History unavailable"
+            root.failed(root.errorText)
+        }
     }
 
     Process {
@@ -106,6 +120,10 @@ CollapsibleSection {
             if (pendingBody !== "") {
                 write(pendingBody)
                 pendingBody = ""
+                // Close stdin so `tee` sees EOF and exits. Without this the
+                // process never finishes, `busy` stays true, and every later
+                // click is ignored (the "HISTORY does nothing" bug).
+                stdinEnabled = false
             }
         }
         onExited: (code) => {

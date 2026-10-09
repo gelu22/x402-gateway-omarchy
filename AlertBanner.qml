@@ -11,6 +11,7 @@ import "Model.js" as Model
 
 Rectangle {
     id: root
+    ThemeColors { id: pal }
 
     property string text: ""
     property string tone: "warn" // warn | error
@@ -21,9 +22,9 @@ Rectangle {
     width: parent ? parent.width : 0
     height: bannerRow.implicitHeight + Style.space(12)
     visible: root.text !== ""
-    color: Model.Palette.bannerBg
+    color: pal.bannerBg
     radius: Style.cornerRadius
-    border.color: root.tone === "error" ? Model.Palette.error : Model.Palette.warn
+    border.color: root.tone === "error" ? pal.error : pal.warn
     border.width: 1
 
     RowLayout {
@@ -38,7 +39,7 @@ Rectangle {
             Layout.fillWidth: true
             text: root.text
             textFormat: Text.PlainText
-            color: root.tone === "error" ? Model.Palette.error : Model.Palette.warn
+            color: root.tone === "error" ? pal.error : pal.warn
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.WordWrap
         }

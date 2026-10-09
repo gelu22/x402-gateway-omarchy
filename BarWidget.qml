@@ -9,6 +9,7 @@ import "Model.js" as Model
 
 BarWidget {
     id: root
+    ThemeColors { id: pal }
 
     moduleName: Model.PLUGIN_ID
     property string socketPath: ""
@@ -73,7 +74,7 @@ BarWidget {
     // instead of a stale balance or a premature "Offline".
     property bool firstPollDone: false
 
-    readonly property color stateColor: Model.statusColor(root.gatewayState)
+    readonly property color stateColor: pal.statusColor(root.gatewayState)
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
