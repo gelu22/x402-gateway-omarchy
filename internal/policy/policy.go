@@ -141,3 +141,14 @@ func (p *Policy) AgentCapMicro(label string) int64 {
 	}
 	return p.AgentDailyCapMicro
 }
+
+// AgentCapExplicit reports whether label has an explicit entry in AgentCapsMicro.
+// It separates "no entry" (fall back to the default) from "entry == 0" (the
+// agent does not auto-pay). AgentCapMicro alone cannot: both yield 0.
+func (p *Policy) AgentCapExplicit(label string) bool {
+	if p == nil || p.AgentCapsMicro == nil {
+		return false
+	}
+	_, ok := p.AgentCapsMicro[label]
+	return ok
+}

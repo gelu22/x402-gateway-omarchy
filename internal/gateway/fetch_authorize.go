@@ -24,9 +24,15 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 	}
 	capMicro := pol.DailyCapMicro
 	agentCap := pol.AgentCapMicro(agent)
+	// An explicit 0 for a label means "this agent does not auto-pay" (policy.go
+	// field comment). AgentCapMicro cannot express that on its own — it returns 0
+	// for both "no entry (feature off)" and "explicit 0" — so a bare 0 would slip
+	// past the agent check in Authority and hand the agent the whole global budget.
+	agentNoAutoPay := pol.AgentCapExplicit(agent) && agentCap == 0
 	if overrideAmountMicro > 0 {
 		capMicro = math.MaxInt64
 		agentCap = 0 // owner override lifts the agent limit too
+		agentNoAutoPay = false
 	}
 	subcap := pol.DomainSubCapMicro()
 	domain := normSellerDomain(target)
@@ -35,6 +41,16 @@ func (g *Gateway) authorizePayment(amountMicro int64, amountErr error, target st
 	} else if subcap > 0 && domain == "" {
 		g.setLastFetchError("unknown_seller", 0, true, target, "unknown_seller")
 		return "", &PolicyError{Code: "unknown_seller", AmountMicro: 0, CanOverride: true}
+	}
+	if agentNoAutoPay {
+		g.recordBlock("agent_cap_exceeded", strconv.FormatInt(amountMicro, 10), target)
+		g.setLastFetchError("agent_cap_exceeded", amountMicro, true, target, "agent_cap_exceeded")
+		LogPayment(g.Logger, PaymentLine{
+			AmountMicro: amountMicro, Target: target,
+			Outcome: "failed:agent_cap_exceeded", Agent: agent,
+			Override: overrideAmountMicro > 0,
+		})
+		return "", &PolicyError{Code: "agent_cap_exceeded", AmountMicro: amountMicro, CanOverride: true}
 	}
 	// The per-domain cap is passed whole: the authority decides it from its own
 	// committed plus in-flight totals, in one transaction. Subtracting a balance

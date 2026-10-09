@@ -2,9 +2,9 @@ module gateway
 
 go 1.25.0
 
-// Build with the patched toolchain: go1.25.0's stdlib has 26 vulnerabilities
-// reachable from this code (net/http, crypto/x509, net/url, ...; 34.2).
-toolchain go1.25.13
+// Build with the patched toolchain: new stdlib advisories reachable from this
+// code are fixed only in go1.26.9 (e.g. GO-2026-6613/6617 in net/http; 34.2).
+toolchain go1.26.9
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0

@@ -11,7 +11,7 @@ Download the installer from a **pinned release**, verify its signature, then
 run it — never pipe a remote script straight into a shell:
 
 ```bash
-VERSION=v0.1.29   # any released tag (see the Releases page)
+VERSION=v0.1.30   # any released tag (see the Releases page)
 TMP="$(mktemp -d)"
 curl -fsSL -o "$TMP/install.sh" \
   "https://github.com/gelu22/x402-gateway-omarchy/releases/download/$VERSION/install.sh" \

@@ -184,3 +184,43 @@ func TestAgentCapDailyTakesPriority(t *testing.T) {
 		t.Fatalf("want budget_exceeded when both caps spent, got %v", err)
 	}
 }
+
+// An explicit 0 for a label means "does not auto-pay" (policy.go field comment).
+// Regression for HANCORE on 0.1.29: a bare 0 slipped past the agent check and
+// handed the agent the whole global budget.
+func TestAgentCapExplicitZeroBlocksAutoPay(t *testing.T) {
+	gw, _ := newSettleGateway(t)
+	// Feature off (default 0) — only the explicit entry constrains codex.
+	agentCapPolicy(t, gw, 50_000_000, 0, map[string]int64{"codex": 0})
+	var buf bytes.Buffer
+	gw.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	srv := sellerAsking(t, "1000000", http.StatusOK)
+	signer := gw.Signer.(*settleSigner)
+	signsBefore := signer.signCalls.Load()
+
+	err := fetchAs(t, gw, "codex", srv.URL+"/content")
+	var perr *PolicyError
+	if !errors.As(err, &perr) || perr.Code != "agent_cap_exceeded" {
+		t.Fatalf("explicit 0: want agent_cap_exceeded, got %v", err)
+	}
+	if !perr.CanOverride {
+		t.Fatal("explicit 0 must be overridable")
+	}
+	if signer.signCalls.Load() != signsBefore {
+		t.Fatal("explicit 0 must not call Sign")
+	}
+	// A label with no entry stays unconstrained by the agent cap.
+	if err := fetchAs(t, gw, "other", srv.URL+"/other"); err != nil {
+		t.Fatalf("other label must pay: %v", err)
+	}
+}
+
+func TestAgentCapExplicitZeroOverridable(t *testing.T) {
+	gw, _ := newSettleGateway(t)
+	agentCapPolicy(t, gw, 50_000_000, 0, map[string]int64{"codex": 0})
+	srv := sellerAsking(t, "1000000", http.StatusOK)
+	ctx := agentlabel.With(context.Background(), "codex")
+	if _, err := gw.FetchWithOverride(ctx, http.MethodGet, srv.URL+"/content", nil, nil, 1_000_000, false); err != nil {
+		t.Fatalf("owner override must lift explicit 0: %v", err)
+	}
+}

@@ -415,3 +415,20 @@ func TestSaveLoadAgentCapsRoundTrip(t *testing.T) {
 		t.Fatalf("empty label want default, got %d", got.AgentCapMicro(""))
 	}
 }
+
+func TestAgentCapExplicit(t *testing.T) {
+	p := Default()
+	if p.AgentCapExplicit("codex") {
+		t.Fatal("no map: must not be explicit")
+	}
+	p.AgentCapsMicro = map[string]int64{"codex": 0, "cursor": 5}
+	if !p.AgentCapExplicit("codex") {
+		t.Fatal("entry present (0): must be explicit")
+	}
+	if !p.AgentCapExplicit("cursor") {
+		t.Fatal("entry present (>0): must be explicit")
+	}
+	if p.AgentCapExplicit("other") {
+		t.Fatal("missing label: must not be explicit")
+	}
+}

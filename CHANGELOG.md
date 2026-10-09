@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows the plugin manifest (`plugin/omarchy/manifest.json`).
 
+## [0.1.30] — 2026-10-08
+
+### Fixed
+
+- **An explicit `0` per-agent cap now blocks automatic payments.** `agent_caps_micro_usdc: {"agent": 0}` means "this agent does not auto-pay": a payment returns `agent_cap_exceeded` (owner-overridable) instead of silently granting that agent the whole global budget. Reported by **HANCORE** on 0.1.29 (#10559).
+
 ## [0.1.29] — 2026-10-08
 
 ### Changed
